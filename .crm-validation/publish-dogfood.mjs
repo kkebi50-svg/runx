@@ -24,7 +24,7 @@ const command=(label,args,extra={})=>{
   if(r.status!==0&&value.status!=='needs_agent')throw new Error(`${label} failed`);
   return value;
 };
-const write=(name,value)=>{const p=path.join(cwd,name);fs.writeFileSync(p,JSON.stringify(value));return p;};
+const write=(name,value)=>{const p=path.join(cwd,name);fs.writeFileSync(p,JSON.stringify(value));return name;};
 command('published-metadata',['registry','read',ref,'--registry','https://api.runx.ai','--json']);
 command('clean-install',['add',ref,'--registry','https://api.runx.ai','--json']);
 const stream=`demo-${randomUUID()}`;

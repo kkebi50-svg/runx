@@ -1,4 +1,4 @@
-name: Publish exact CRM cleanup package
+name: Verify published CRM cleanup package
 on:
   push:
     branches: [codex/crm-publication]
@@ -34,13 +34,5 @@ jobs:
           runx --version
           runx harness ./skills/crm-cleanup --json > "$RUNNER_TEMP/prepublish-harness.json"
           cat "$RUNNER_TEMP/prepublish-harness.json"
-      - name: Publish to Runx registry
-        working-directory: submission
-        env:
-          RUNX_PUBLIC_API_TOKEN: ${{ secrets.CRM_RUNX_PUBLISH_TOKEN }}
-        run: |
-          test -n "$RUNX_PUBLIC_API_TOKEN"
-          runx registry publish ./skills/crm-cleanup/SKILL.md --version 0.2.0 --registry https://api.runx.ai --json > "$RUNNER_TEMP/crm-publish.json"
-          cat "$RUNNER_TEMP/crm-publish.json"
       - name: Install published package and dogfood with CI signatures
         run: node .crm-validation/publish-dogfood.mjs
