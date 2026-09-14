@@ -1,0 +1,90 @@
+{
+  "name": "crm-cleanup-noop",
+  "kind": "graph",
+  "target": "journey.json",
+  "operator_journeys": [
+    {
+      "mode": "composed",
+      "exercises_runner": "reconcile",
+      "request": "Continue from the supplied call transcript without repeating completed work.",
+      "expected_outcome": "Reuse upstream transcript evidence and leave the already-matching CRM unchanged.",
+      "prior_evidence": [
+        "Bounded transcript and CRM schema supplied by upstream call processing."
+      ],
+      "must_not_repeat": [
+        "Do not re-transcribe the call.",
+        "Do not append a CRM update when the value already matches."
+      ]
+    }
+  ],
+  "env": {
+    "RUNX_DATA_SOURCES": "{\"data_sources\":{\"local://crm/harness\":{\"adapter\":\"data.sqlite\",\"database_path\":\".runx/data/crm-noop.sqlite\",\"resources\":{\"crm_records\":{\"kind\":\"event_stream\",\"partition_key\":\"aggregate_id\"}}}}}"
+  },
+  "caller": {
+    "answers": {
+      "agent_task.crm-cleanup-reconcile.output": {
+        "update_draft": {
+          "takeaways": [
+            "Globex next action was discussed."
+          ],
+          "uncertainties": [],
+          "updates": []
+        }
+      }
+    }
+  },
+  "expect": {
+    "status": "sealed",
+    "receipt": {
+      "schema": "runx.receipt.v1"
+    },
+    "steps": [
+      "seed",
+      "cleanup",
+      "repeat",
+      "read-final"
+    ],
+    "step_outputs": {
+      "cleanup": {
+        "subset": {
+          "crm_cleanup_result": {
+            "data": {
+              "status": "no_action",
+              "write_result": {
+                "attempted": false,
+                "write_performed": false,
+                "verified": false
+              }
+            }
+          }
+        }
+      },
+      "repeat": {
+        "subset": {
+          "crm_cleanup_result": {
+            "data": {
+              "status": "no_action",
+              "write_result": {
+                "attempted": false,
+                "write_performed": false
+              }
+            }
+          }
+        }
+      },
+      "read-final": {
+        "subset": {
+          "data_operation_result": {
+            "data": {
+              "after_version": 1
+            }
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "public_skill": "crm-cleanup",
+    "source": "skills-fixture"
+  }
+}

@@ -1,0 +1,97 @@
+{
+  "name": "crm-cleanup-happy",
+  "kind": "graph",
+  "target": "journey.json",
+  "operator_journeys": [
+    {
+      "mode": "standalone",
+      "exercises_runner": "reconcile",
+      "confusors": [
+        "lead-enrichment",
+        "lead-router"
+      ],
+      "request": "Update the CRM from this call transcript and verify the change.",
+      "expected_outcome": "Read the current source, apply the supported field once, and independently read back the new value."
+    }
+  ],
+  "env": {
+    "RUNX_DATA_SOURCES": "{\"data_sources\":{\"local://crm/harness\":{\"adapter\":\"data.sqlite\",\"database_path\":\".runx/data/crm-happy.sqlite\",\"resources\":{\"crm_records\":{\"kind\":\"event_stream\",\"partition_key\":\"aggregate_id\"}}}}}"
+  },
+  "caller": {
+    "answers": {
+      "agent_task.crm-cleanup-reconcile.output": {
+        "update_draft": {
+          "takeaways": [
+            "Globex next action was discussed."
+          ],
+          "uncertainties": [],
+          "updates": [
+            {
+              "record_id": "acct-globex",
+              "field": "next_action",
+              "to": "send the report on Friday",
+              "evidence_quote": "send the report on Friday",
+              "rationale": "The transcript explicitly names Globex and states the next action.",
+              "confidence": 0.99,
+              "ambiguous": false
+            }
+          ]
+        }
+      }
+    }
+  },
+  "expect": {
+    "status": "sealed",
+    "receipt": {
+      "schema": "runx.receipt.v1"
+    },
+    "steps": [
+      "seed",
+      "cleanup",
+      "repeat",
+      "read-final"
+    ],
+    "step_outputs": {
+      "cleanup": {
+        "subset": {
+          "crm_cleanup_result": {
+            "data": {
+              "status": "verified",
+              "write_result": {
+                "attempted": true,
+                "write_performed": true,
+                "verified": true
+              }
+            }
+          }
+        }
+      },
+      "repeat": {
+        "subset": {
+          "crm_cleanup_result": {
+            "data": {
+              "status": "no_action",
+              "write_result": {
+                "attempted": false,
+                "write_performed": false
+              }
+            }
+          }
+        }
+      },
+      "read-final": {
+        "subset": {
+          "data_operation_result": {
+            "data": {
+              "after_version": 2
+            }
+          }
+        }
+      }
+    }
+  },
+  "metadata": {
+    "public_skill": "crm-cleanup",
+    "source": "skills-fixture"
+  }
+}

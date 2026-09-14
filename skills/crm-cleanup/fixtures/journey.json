@@ -1,0 +1,85 @@
+{
+  "name": "crm-cleanup-source-journey",
+  "owner": "kkebi50-svg",
+  "result_from": [
+    "cleanup",
+    "repeat",
+    "read-final"
+  ],
+  "steps": [
+    {
+      "id": "seed",
+      "tool": "data.append_event",
+      "scopes": [
+        "runx:data:append"
+      ],
+      "inputs": {
+        "data_source_ref": "local://crm/harness",
+        "resource": "crm_records",
+        "aggregate_id": "accounts",
+        "expected_version": 0,
+        "idempotency_key": "seed",
+        "event": {
+          "type": "crm.snapshot",
+          "records": [
+            {
+              "id": "acct-globex",
+              "fields": {
+                "next_action": "none"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "cleanup",
+      "skill": "..",
+      "runner": "reconcile",
+      "inputs": {
+        "data_source_ref": "local://crm/harness",
+        "resource": "crm_records",
+        "aggregate_id": "accounts",
+        "transcript": "Globex next action is send the report on Friday.",
+        "crm_schema": {
+          "allowed_fields": [
+            "next_action"
+          ],
+          "minimum_confidence": 0.95
+        },
+        "operation_key": "call-2026-09-15-globex"
+      }
+    },
+    {
+      "id": "repeat",
+      "skill": "..",
+      "runner": "reconcile",
+      "inputs": {
+        "data_source_ref": "local://crm/harness",
+        "resource": "crm_records",
+        "aggregate_id": "accounts",
+        "transcript": "Globex next action is send the report on Friday.",
+        "crm_schema": {
+          "allowed_fields": [
+            "next_action"
+          ],
+          "minimum_confidence": 0.95
+        },
+        "operation_key": "call-2026-09-15-globex"
+      }
+    },
+    {
+      "id": "read-final",
+      "tool": "data.read_events",
+      "scopes": [
+        "runx:data:read"
+      ],
+      "inputs": {
+        "data_source_ref": "local://crm/harness",
+        "resource": "crm_records",
+        "aggregate_id": "accounts",
+        "limit": 1
+      }
+    }
+  ]
+}

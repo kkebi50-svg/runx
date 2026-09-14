@@ -1,273 +1,1426 @@
-skill: crm-cleanup
-version: "0.1.0"
-
-catalog:
-  kind: graph
-  audience: operator
-  visibility: public
-  role: canonical
-  execution: plan
-  completion: runtime_receipt
-  requires_adapter: false
-  approval: none
-
-harness:
-  cases:
-    - name: crm-cleanup-proposes-traced-updates
-      operator_journeys:
-        - mode: standalone
-          confusors: [lead-enrichment, lead-router]
-          request: Reconcile this call transcript against the CRM records and propose the field updates.
-          expected_outcome: Return allowlisted field updates, each traced to a verbatim transcript quote, with no CRM write performed.
-        - mode: composed
-          request: Continue from this sealed update proposal into the CRM write step.
-          expected_outcome: Hand the sealed proposal to the gated CRM operator without re-deriving updates.
-          prior_evidence:
-            - The transcript, records, and sealed proposal supplied by the prior step.
-          must_not_repeat:
-            - Do not re-reconcile updates already sealed.
-      inputs:
-        transcript: "Call with Globex on renewal. Dana said the rollout stalled and they want an executive review before renewing. Next step agreed: send the Q3 usage report by Friday."
-        crm_records:
-          - id: acct-globex
-            account_status: healthy
-            next_action: none
-        crm_schema:
-          allowed_fields: [account_status, next_action, health_score]
-      caller:
-        answers:
-          agent_task.crm-cleanup-reconcile.output:
-            update_draft:
-              updates:
-                - record_id: acct-globex
-                  field: account_status
-                  to: at_risk
-                  evidence_quote: the rollout stalled and they want an executive review before renewing
-                - record_id: acct-globex
-                  field: next_action
-                  to: send the Q3 usage report by Friday
-                  evidence_quote: "send the Q3 usage report by Friday"
-      expect:
-        status: sealed
-        steps: [digest-transcript, digest-records, reconcile, finalize]
-        step_outputs:
-          finalize:
-            subset:
-              crm_update_proposal:
-                data:
-                  schema: runx.crm_update_proposal.v1
-                  decision: proposed
-                  write_performed: false
-                  gate: crm-operator-or-human-approver
-                  rejected_updates: []
-                  validation: { status: pass, findings: [] }
-        receipt: { schema: runx.receipt.v1 }
-
-    - name: crm-cleanup-rejects-unlisted-field
-      inputs:
-        transcript: "Owner said move the account to Kim."
-        crm_records:
-          - id: acct-1
-            owner: lee
-        crm_schema:
-          allowed_fields: [next_action]
-      caller:
-        answers:
-          agent_task.crm-cleanup-reconcile.output:
-            update_draft:
-              updates:
-                - record_id: acct-1
-                  field: owner
-                  to: kim
-                  evidence_quote: move the account to Kim
-      expect:
-        status: sealed
-        steps: [digest-transcript, digest-records, reconcile, finalize]
-        step_outputs:
-          finalize:
-            subset:
-              crm_update_proposal:
-                data:
-                  decision: no_action
-                  updates: []
-                  rejected_updates:
-                    - record_id: acct-1
-                      field: owner
-                      reason: field is outside the crm_schema allowlist
-                  validation: { status: pass, findings: [] }
-        receipt: { schema: runx.receipt.v1 }
-
-    - name: crm-cleanup-refuses-invented-quote
-      inputs:
-        transcript: "Short call, no changes discussed."
-        crm_records:
-          - id: acct-1
-            account_status: healthy
-        crm_schema:
-          allowed_fields: [account_status]
-      caller:
-        answers:
-          agent_task.crm-cleanup-reconcile.output:
-            update_draft:
-              updates:
-                - record_id: acct-1
-                  field: account_status
-                  to: at_risk
-                  evidence_quote: customer threatened to churn immediately
-      expect:
-        status: sealed
-        steps: [digest-transcript, digest-records, reconcile, finalize]
-        step_outputs:
-          finalize:
-            subset:
-              crm_update_proposal:
-                data:
-                  decision: refused
-                  updates: []
-                  validation: { status: fail }
-        receipt: { schema: runx.receipt.v1 }
-
-    - name: crm-cleanup-needs-transcript
-      inputs:
-        crm_records:
-          - id: acct-1
-        crm_schema:
-          allowed_fields: [next_action]
-      expect:
-        status: failure
-
-runners:
-  reconcile:
-    default: true
-    type: graph
-    inputs:
-      transcript:
-        type: string
-        required: true
-        description: Call transcript that is the only evidence for proposed updates.
-      crm_records:
-        type: json
-        required: true
-        description: Current CRM records read from the caller's source of truth.
-      crm_schema:
-        type: object
-        required: true
-        description: Explicit update authority; fields outside allowed_fields are rejected.
-        schema:
-          additionalProperties: false
-          properties:
-            allowed_fields:
-              type: array
-              minItems: 1
-              maxItems: 100
-              items: { type: string, minLength: 1, maxLength: 200 }
-    examples:
-      - transcript: "Dana said the rollout stalled."
-        crm_records:
-          - id: acct-globex
-            account_status: healthy
-        crm_schema:
-          allowed_fields: [account_status]
-    graph:
-      name: crm-cleanup-reconcile
-      result_from: [finalize]
-      steps:
-        - id: digest-transcript
-          tool: data.digest
-          inputs:
-            value: $input.transcript
-            encoding: utf8_text
-
-        - id: digest-records
-          tool: data.digest
-          inputs:
-            value: $input.crm_records
-
-        - id: reconcile
-          label: derive candidate field updates from the transcript
-          run:
-            type: agent-task
-            agent: reviewer
-            task: crm-cleanup-reconcile
-            outputs:
-              update_draft: object
-          inputs:
-            transcript: $input.transcript
-            crm_records: $input.crm_records
-            crm_schema: $input.crm_schema
-          allowed_tools: []
-          artifacts:
-            named_emits:
-              update_draft: update_draft
-
-        - id: finalize
-          label: enforce allowlist and transcript traceability deterministically
-          inputs:
-            transcript: $input.transcript
-            crm_records: $input.crm_records
-            crm_schema: $input.crm_schema
-          context:
-            update_draft: reconcile.update_draft.data
-            transcript_digest: digest-transcript.digest_result.data.digest
-            records_digest: digest-records.digest_result.data.digest
-          run:
-            type: javascript
-            module: crm-cleanup.mjs
-            export: finalizeUpdates
-            outputs:
-              crm_update_proposal:
-                type: object
-                schema:
-                  required: [schema, decision, reason, updates, rejected_updates, write_performed, gate, transcript_digest, records_digest, validation]
-                  additionalProperties: false
-                  properties:
-                    schema: { const: runx.crm_update_proposal.v1 }
-                    decision: { type: string, enum: [proposed, no_action, refused] }
-                    reason: { type: string, minLength: 1, maxLength: 2000 }
-                    updates:
-                      type: array
-                      maxItems: 200
-                      items:
-                        type: object
-                        required: [record_id, field, from, to, evidence_quote]
-                        additionalProperties: false
-                        properties:
-                          record_id: { type: string, minLength: 1, maxLength: 500 }
-                          field: { type: string, minLength: 1, maxLength: 200 }
-                          from: {}
-                          to: {}
-                          evidence_quote: { type: string, minLength: 1, maxLength: 4000 }
-                    rejected_updates:
-                      type: array
-                      maxItems: 200
-                      items:
-                        type: object
-                        required: [record_id, field, reason]
-                        additionalProperties: false
-                        properties:
-                          record_id: { type: [string, "null"], maxLength: 500 }
-                          field: { type: string, maxLength: 200 }
-                          reason: { type: string, minLength: 1, maxLength: 500 }
-                    write_performed: { const: false }
-                    gate: { const: crm-operator-or-human-approver }
-                    transcript_digest: { type: string, pattern: "^sha256:[0-9a-f]{64}$" }
-                    records_digest: { type: string, pattern: "^sha256:[0-9a-f]{64}$" }
-                    validation:
-                      type: object
-                      required: [status, findings]
-                      additionalProperties: false
-                      properties:
-                        status: { type: string, enum: [pass, fail] }
-                        findings:
-                          type: array
-                          maxItems: 100
-                          items:
-                            type: object
-                            required: [code, message]
-                            additionalProperties: false
-                            properties:
-                              code: { type: string, minLength: 1, maxLength: 200 }
-                              message: { type: string, minLength: 1, maxLength: 2000 }
-          artifacts:
-            named_emits:
-              crm_update_proposal: crm_update_proposal
+{
+  "skill": "crm-cleanup",
+  "version": "0.2.0",
+  "catalog": {
+    "kind": "graph",
+    "audience": "operator",
+    "visibility": "public",
+    "role": "canonical",
+    "execution": "execute",
+    "completion": "runtime_receipt",
+    "requires_adapter": true,
+    "approval": "conditional"
+  },
+  "harness": {
+    "files": [
+      "fixtures/journey.json"
+    ],
+    "cases": [
+      {
+        "name": "crm-cleanup-needs-transcript",
+        "inputs": {
+          "data_source_ref": "local://crm/example",
+          "resource": "crm_records",
+          "aggregate_id": "accounts",
+          "crm_schema": {
+            "allowed_fields": [
+              "next_action"
+            ],
+            "minimum_confidence": 0.95
+          },
+          "operation_key": "call-2026-09-15-globex"
+        },
+        "expect": {
+          "status": "failure"
+        }
+      },
+      {
+        "name": "crm-cleanup-missing-source",
+        "inputs": {
+          "data_source_ref": "local://crm/example",
+          "resource": "crm_records",
+          "aggregate_id": "accounts",
+          "transcript": "Globex next action is send the report on Friday.",
+          "crm_schema": {
+            "allowed_fields": [
+              "next_action"
+            ],
+            "minimum_confidence": 0.95
+          },
+          "operation_key": "call-2026-09-15-globex"
+        },
+        "caller": {
+          "answers": {
+            "agent_task.crm-cleanup-reconcile.output": {
+              "update_draft": {
+                "takeaways": [],
+                "uncertainties": [
+                  "No source record set is available."
+                ],
+                "updates": []
+              }
+            }
+          }
+        },
+        "expect": {
+          "status": "sealed",
+          "step_outputs": {
+            "finalize-unchanged": {
+              "subset": {
+                "crm_cleanup_result": {
+                  "data": {
+                    "status": "refused",
+                    "write_result": {
+                      "attempted": false,
+                      "write_performed": false
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  },
+  "runners": {
+    "reconcile": {
+      "default": true,
+      "type": "graph",
+      "inputs": {
+        "data_source_ref": {
+          "type": "string",
+          "required": true,
+          "description": "Operator-selected logical CRM event source, bound by runtime configuration."
+        },
+        "resource": {
+          "type": "string",
+          "required": true,
+          "description": "CRM snapshot stream resource."
+        },
+        "aggregate_id": {
+          "type": "string",
+          "required": true,
+          "description": "Exact CRM record-set stream to read and update."
+        },
+        "transcript": {
+          "type": "string",
+          "required": true,
+          "description": "Bounded call transcript; exact quotes must support every proposed change.",
+          "schema": {
+            "minLength": 1,
+            "maxLength": 16000
+          }
+        },
+        "crm_schema": {
+          "type": "object",
+          "required": true,
+          "description": "Allowed CRM field names and minimum evidence confidence. This policy is not a substitute for the native write scope.",
+          "schema": {
+            "additionalProperties": false,
+            "required": [
+              "allowed_fields",
+              "minimum_confidence"
+            ],
+            "properties": {
+              "allowed_fields": {
+                "type": "array",
+                "maxItems": 50,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "minimum_confidence": {
+                "type": "number",
+                "minimum": 0.9,
+                "maximum": 1
+              }
+            }
+          }
+        },
+        "operation_key": {
+          "type": "string",
+          "required": true,
+          "description": "Stable idempotency key for this exact requested cleanup operation; reuse for recovery only."
+        }
+      },
+      "examples": [
+        {
+          "data_source_ref": "local://crm/example",
+          "resource": "crm_records",
+          "aggregate_id": "accounts",
+          "transcript": "Globex next action is send the report on Friday.",
+          "crm_schema": {
+            "allowed_fields": [
+              "next_action"
+            ],
+            "minimum_confidence": 0.95
+          },
+          "operation_key": "call-2026-09-15-globex"
+        }
+      ],
+      "graph": {
+        "name": "crm-cleanup-reconcile",
+        "result_from": [
+          "finalize-written",
+          "finalize-unchanged"
+        ],
+        "steps": [
+          {
+            "id": "read-source",
+            "tool": "data.read_events",
+            "scopes": [
+              "runx:data:read"
+            ],
+            "inputs": {
+              "data_source_ref": "$input.data_source_ref",
+              "resource": "$input.resource",
+              "aggregate_id": "$input.aggregate_id",
+              "limit": 1
+            }
+          },
+          {
+            "id": "digest-transcript",
+            "tool": "data.digest",
+            "inputs": {
+              "value": "$input.transcript",
+              "encoding": "utf8_text"
+            }
+          },
+          {
+            "id": "prepare",
+            "run": {
+              "type": "javascript",
+              "module": "crm-cleanup.mjs",
+              "export": "prepareSource",
+              "outputs": {
+                "crm_source": {
+                  "type": "object",
+                  "schema": {
+                    "additionalProperties": false,
+                    "required": [
+                      "ready",
+                      "records",
+                      "version",
+                      "event_ref",
+                      "digest",
+                      "findings"
+                    ],
+                    "properties": {
+                      "ready": {
+                        "type": "boolean"
+                      },
+                      "records": {
+                        "type": "array",
+                        "maxItems": 50,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "id",
+                            "fields"
+                          ],
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "fields": {
+                              "type": "object",
+                              "maxProperties": 50,
+                              "additionalProperties": {
+                                "type": [
+                                  "string",
+                                  "number",
+                                  "boolean",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "version": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "event_ref": {
+                        "type": "string"
+                      },
+                      "digest": {
+                        "type": "string"
+                      },
+                      "findings": {
+                        "type": "array",
+                        "maxItems": 100,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "code",
+                            "message"
+                          ],
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 100
+                            },
+                            "message": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2000
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "artifacts": {
+              "named_emits": {
+                "crm_source": "crm_source"
+              }
+            },
+            "context": {
+              "source_result": "read-source.data_operation_result.data"
+            }
+          },
+          {
+            "id": "reconcile",
+            "run": {
+              "type": "agent-task",
+              "agent": "reviewer",
+              "task": "crm-cleanup-reconcile",
+              "outputs": {
+                "update_draft": {
+                  "type": "object",
+                  "schema": {
+                    "additionalProperties": false,
+                    "required": [
+                      "takeaways",
+                      "uncertainties",
+                      "updates"
+                    ],
+                    "properties": {
+                      "takeaways": {
+                        "type": "array",
+                        "maxItems": 50,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2000
+                        }
+                      },
+                      "uncertainties": {
+                        "type": "array",
+                        "maxItems": 50,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2000
+                        }
+                      },
+                      "updates": {
+                        "type": "array",
+                        "maxItems": 50,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "record_id",
+                            "field",
+                            "to",
+                            "evidence_quote",
+                            "rationale",
+                            "confidence",
+                            "ambiguous"
+                          ],
+                          "properties": {
+                            "record_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "field": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "to": {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "null"
+                              ]
+                            },
+                            "evidence_quote": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4000
+                            },
+                            "rationale": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2000
+                            },
+                            "confidence": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "ambiguous": {
+                              "type": "boolean"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "allowed_tools": [],
+            "inputs": {
+              "transcript": "$input.transcript",
+              "crm_schema": "$input.crm_schema"
+            },
+            "context": {
+              "crm_records": "prepare.crm_source.data.records",
+              "source_ready": "prepare.crm_source.data.ready"
+            },
+            "artifacts": {
+              "named_emits": {
+                "update_draft": "update_draft"
+              }
+            }
+          },
+          {
+            "id": "plan",
+            "run": {
+              "type": "javascript",
+              "module": "crm-cleanup.mjs",
+              "export": "planUpdates",
+              "outputs": {
+                "crm_plan": {
+                  "type": "object",
+                  "schema": {
+                    "additionalProperties": false,
+                    "required": [
+                      "decision",
+                      "takeaways",
+                      "field_updates",
+                      "findings",
+                      "before",
+                      "after",
+                      "expected_version",
+                      "event",
+                      "source_event_ref",
+                      "source_digest"
+                    ],
+                    "properties": {
+                      "decision": {
+                        "enum": [
+                          "execute",
+                          "no_action",
+                          "needs_review",
+                          "refused"
+                        ]
+                      },
+                      "takeaways": {
+                        "type": "array",
+                        "maxItems": 50,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2000
+                        }
+                      },
+                      "field_updates": {
+                        "type": "array",
+                        "maxItems": 50,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "record_id",
+                            "field",
+                            "to",
+                            "evidence_quote",
+                            "rationale",
+                            "confidence",
+                            "ambiguous",
+                            "from"
+                          ],
+                          "properties": {
+                            "record_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "field": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "to": {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "null"
+                              ]
+                            },
+                            "evidence_quote": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4000
+                            },
+                            "rationale": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2000
+                            },
+                            "confidence": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "ambiguous": {
+                              "type": "boolean"
+                            },
+                            "from": {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "null"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "findings": {
+                        "type": "array",
+                        "maxItems": 100,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "code",
+                            "message"
+                          ],
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 100
+                            },
+                            "message": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2000
+                            }
+                          }
+                        }
+                      },
+                      "before": {
+                        "type": "array",
+                        "maxItems": 50,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "id",
+                            "fields"
+                          ],
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "fields": {
+                              "type": "object",
+                              "maxProperties": 50,
+                              "additionalProperties": {
+                                "type": [
+                                  "string",
+                                  "number",
+                                  "boolean",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "after": {
+                        "type": "array",
+                        "maxItems": 50,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "id",
+                            "fields"
+                          ],
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "fields": {
+                              "type": "object",
+                              "maxProperties": 50,
+                              "additionalProperties": {
+                                "type": [
+                                  "string",
+                                  "number",
+                                  "boolean",
+                                  "null"
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "expected_version": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "event": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "type",
+                          "records",
+                          "cleanup"
+                        ],
+                        "properties": {
+                          "type": {
+                            "const": "crm.snapshot"
+                          },
+                          "records": {
+                            "type": "array",
+                            "maxItems": 50,
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "id",
+                                "fields"
+                              ],
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 200
+                                },
+                                "fields": {
+                                  "type": "object",
+                                  "maxProperties": 50,
+                                  "additionalProperties": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          "cleanup": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "operation_key",
+                              "transcript_digest",
+                              "source_event_ref",
+                              "field_updates"
+                            ],
+                            "properties": {
+                              "operation_key": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 200
+                              },
+                              "transcript_digest": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 100
+                              },
+                              "source_event_ref": {
+                                "type": "string"
+                              },
+                              "field_updates": {
+                                "type": "array",
+                                "maxItems": 50,
+                                "items": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "required": [
+                                    "record_id",
+                                    "field",
+                                    "to",
+                                    "evidence_quote",
+                                    "rationale",
+                                    "confidence",
+                                    "ambiguous",
+                                    "from"
+                                  ],
+                                  "properties": {
+                                    "record_id": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200
+                                    },
+                                    "field": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200
+                                    },
+                                    "to": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    "evidence_quote": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 4000
+                                    },
+                                    "rationale": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 2000
+                                    },
+                                    "confidence": {
+                                      "type": "number",
+                                      "minimum": 0,
+                                      "maximum": 1
+                                    },
+                                    "ambiguous": {
+                                      "type": "boolean"
+                                    },
+                                    "from": {
+                                      "type": [
+                                        "string",
+                                        "number",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "source_event_ref": {
+                        "type": "string"
+                      },
+                      "source_digest": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "artifacts": {
+              "named_emits": {
+                "crm_plan": "crm_plan"
+              }
+            },
+            "context": {
+              "crm_source": "prepare.crm_source.data",
+              "update_draft": "reconcile.update_draft.data",
+              "transcript_digest": "digest-transcript.digest_result.data.digest"
+            },
+            "inputs": {
+              "transcript": "$input.transcript",
+              "crm_schema": "$input.crm_schema",
+              "operation_key": "$input.operation_key"
+            }
+          },
+          {
+            "id": "write",
+            "when": {
+              "field": "plan.crm_plan.data.decision",
+              "equals": "execute"
+            },
+            "tool": "data.append_event",
+            "scopes": [
+              "runx:data:append"
+            ],
+            "inputs": {
+              "data_source_ref": "$input.data_source_ref",
+              "resource": "$input.resource",
+              "aggregate_id": "$input.aggregate_id",
+              "idempotency_key": "$input.operation_key"
+            },
+            "context": {
+              "expected_version": "plan.crm_plan.data.expected_version",
+              "event": "plan.crm_plan.data.event"
+            }
+          },
+          {
+            "id": "readback",
+            "when": {
+              "field": "plan.crm_plan.data.decision",
+              "equals": "execute"
+            },
+            "tool": "data.read_events",
+            "scopes": [
+              "runx:data:read"
+            ],
+            "inputs": {
+              "data_source_ref": "$input.data_source_ref",
+              "resource": "$input.resource",
+              "aggregate_id": "$input.aggregate_id",
+              "limit": 1
+            }
+          },
+          {
+            "id": "finalize-written",
+            "run": {
+              "type": "javascript",
+              "module": "crm-cleanup.mjs",
+              "export": "finalizeCleanup",
+              "outputs": {
+                "crm_cleanup_result": {
+                  "type": "object",
+                  "schema": {
+                    "additionalProperties": false,
+                    "required": [
+                      "status",
+                      "takeaways",
+                      "field_updates",
+                      "findings",
+                      "source",
+                      "transcript_digest",
+                      "write_result"
+                    ],
+                    "properties": {
+                      "status": {
+                        "enum": [
+                          "verified",
+                          "no_action",
+                          "needs_review",
+                          "refused",
+                          "conflict",
+                          "unverified"
+                        ]
+                      },
+                      "takeaways": {
+                        "type": "array",
+                        "maxItems": 50,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2000
+                        }
+                      },
+                      "field_updates": {
+                        "type": "array",
+                        "maxItems": 50,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "record_id",
+                            "field",
+                            "to",
+                            "evidence_quote",
+                            "rationale",
+                            "confidence",
+                            "ambiguous",
+                            "from"
+                          ],
+                          "properties": {
+                            "record_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "field": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "to": {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "null"
+                              ]
+                            },
+                            "evidence_quote": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4000
+                            },
+                            "rationale": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2000
+                            },
+                            "confidence": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "ambiguous": {
+                              "type": "boolean"
+                            },
+                            "from": {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "null"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "findings": {
+                        "type": "array",
+                        "maxItems": 100,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "code",
+                            "message"
+                          ],
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 100
+                            },
+                            "message": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2000
+                            }
+                          }
+                        }
+                      },
+                      "source": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "data_source_ref",
+                          "resource",
+                          "aggregate_id",
+                          "event_ref",
+                          "digest",
+                          "version"
+                        ],
+                        "properties": {
+                          "data_source_ref": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2000
+                          },
+                          "resource": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200
+                          },
+                          "aggregate_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200
+                          },
+                          "event_ref": {
+                            "type": "string"
+                          },
+                          "digest": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "number",
+                            "minimum": 0
+                          }
+                        }
+                      },
+                      "transcript_digest": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                      },
+                      "write_result": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "attempted",
+                          "write_performed",
+                          "verified",
+                          "status",
+                          "before",
+                          "after",
+                          "event_ref",
+                          "before_version",
+                          "after_version"
+                        ],
+                        "properties": {
+                          "attempted": {
+                            "type": "boolean"
+                          },
+                          "write_performed": {
+                            "type": "boolean"
+                          },
+                          "verified": {
+                            "type": "boolean"
+                          },
+                          "status": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100
+                          },
+                          "before": {
+                            "type": "array",
+                            "maxItems": 50,
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "id",
+                                "fields"
+                              ],
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 200
+                                },
+                                "fields": {
+                                  "type": "object",
+                                  "maxProperties": 50,
+                                  "additionalProperties": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          "after": {
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "maxItems": 50,
+                                "items": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "required": [
+                                    "id",
+                                    "fields"
+                                  ],
+                                  "properties": {
+                                    "id": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200
+                                    },
+                                    "fields": {
+                                      "type": "object",
+                                      "maxProperties": 50,
+                                      "additionalProperties": {
+                                        "type": [
+                                          "string",
+                                          "number",
+                                          "boolean",
+                                          "null"
+                                        ]
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "event_ref": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "before_version": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "after_version": {
+                            "type": "number",
+                            "minimum": 0
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "artifacts": {
+              "named_emits": {
+                "crm_cleanup_result": "crm_cleanup_result"
+              }
+            },
+            "context": {
+              "crm_plan": "plan.crm_plan.data",
+              "write_result": "write.data_operation_result.data",
+              "readback_result": "readback.data_operation_result.data",
+              "transcript_digest": "digest-transcript.digest_result.data.digest"
+            },
+            "inputs": {
+              "data_source_ref": "$input.data_source_ref",
+              "resource": "$input.resource",
+              "aggregate_id": "$input.aggregate_id"
+            },
+            "when": {
+              "field": "plan.crm_plan.data.decision",
+              "equals": "execute"
+            }
+          },
+          {
+            "id": "finalize-unchanged",
+            "run": {
+              "type": "javascript",
+              "module": "crm-cleanup.mjs",
+              "export": "finalizeCleanup",
+              "outputs": {
+                "crm_cleanup_result": {
+                  "type": "object",
+                  "schema": {
+                    "additionalProperties": false,
+                    "required": [
+                      "status",
+                      "takeaways",
+                      "field_updates",
+                      "findings",
+                      "source",
+                      "transcript_digest",
+                      "write_result"
+                    ],
+                    "properties": {
+                      "status": {
+                        "enum": [
+                          "verified",
+                          "no_action",
+                          "needs_review",
+                          "refused",
+                          "conflict",
+                          "unverified"
+                        ]
+                      },
+                      "takeaways": {
+                        "type": "array",
+                        "maxItems": 50,
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2000
+                        }
+                      },
+                      "field_updates": {
+                        "type": "array",
+                        "maxItems": 50,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "record_id",
+                            "field",
+                            "to",
+                            "evidence_quote",
+                            "rationale",
+                            "confidence",
+                            "ambiguous",
+                            "from"
+                          ],
+                          "properties": {
+                            "record_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "field": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200
+                            },
+                            "to": {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "null"
+                              ]
+                            },
+                            "evidence_quote": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 4000
+                            },
+                            "rationale": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2000
+                            },
+                            "confidence": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "ambiguous": {
+                              "type": "boolean"
+                            },
+                            "from": {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "null"
+                              ]
+                            }
+                          }
+                        }
+                      },
+                      "findings": {
+                        "type": "array",
+                        "maxItems": 100,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "code",
+                            "message"
+                          ],
+                          "properties": {
+                            "code": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 100
+                            },
+                            "message": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 2000
+                            }
+                          }
+                        }
+                      },
+                      "source": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "data_source_ref",
+                          "resource",
+                          "aggregate_id",
+                          "event_ref",
+                          "digest",
+                          "version"
+                        ],
+                        "properties": {
+                          "data_source_ref": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2000
+                          },
+                          "resource": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200
+                          },
+                          "aggregate_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 200
+                          },
+                          "event_ref": {
+                            "type": "string"
+                          },
+                          "digest": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "number",
+                            "minimum": 0
+                          }
+                        }
+                      },
+                      "transcript_digest": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 100
+                      },
+                      "write_result": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "attempted",
+                          "write_performed",
+                          "verified",
+                          "status",
+                          "before",
+                          "after",
+                          "event_ref",
+                          "before_version",
+                          "after_version"
+                        ],
+                        "properties": {
+                          "attempted": {
+                            "type": "boolean"
+                          },
+                          "write_performed": {
+                            "type": "boolean"
+                          },
+                          "verified": {
+                            "type": "boolean"
+                          },
+                          "status": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 100
+                          },
+                          "before": {
+                            "type": "array",
+                            "maxItems": 50,
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "id",
+                                "fields"
+                              ],
+                              "properties": {
+                                "id": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 200
+                                },
+                                "fields": {
+                                  "type": "object",
+                                  "maxProperties": 50,
+                                  "additionalProperties": {
+                                    "type": [
+                                      "string",
+                                      "number",
+                                      "boolean",
+                                      "null"
+                                    ]
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          "after": {
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "maxItems": 50,
+                                "items": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "required": [
+                                    "id",
+                                    "fields"
+                                  ],
+                                  "properties": {
+                                    "id": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200
+                                    },
+                                    "fields": {
+                                      "type": "object",
+                                      "maxProperties": 50,
+                                      "additionalProperties": {
+                                        "type": [
+                                          "string",
+                                          "number",
+                                          "boolean",
+                                          "null"
+                                        ]
+                                      }
+                                    }
+                                  }
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "event_ref": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "before_version": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "after_version": {
+                            "type": "number",
+                            "minimum": 0
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "artifacts": {
+              "named_emits": {
+                "crm_cleanup_result": "crm_cleanup_result"
+              }
+            },
+            "context": {
+              "crm_plan": "plan.crm_plan.data",
+              "transcript_digest": "digest-transcript.digest_result.data.digest"
+            },
+            "inputs": {
+              "data_source_ref": "$input.data_source_ref",
+              "resource": "$input.resource",
+              "aggregate_id": "$input.aggregate_id"
+            },
+            "when": {
+              "field": "plan.crm_plan.data.decision",
+              "not_equals": "execute"
+            }
+          }
+        ]
+      }
+    }
+  }
+}
