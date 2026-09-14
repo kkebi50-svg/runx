@@ -35,7 +35,7 @@ const input={data_source_ref:sourceRef,resource:'crm_records',aggregate_id:strea
 const inputs=write('input.json',input);
 const answer=write('answer.json',{answers:{'agent_task.crm-cleanup-reconcile.output':{update_draft:{takeaways:['Northstar agreed to a Thursday technical review.','The discovery stage remains unchanged.'],uncertainties:[],updates:[{record_id:'northstar-demo',field:'next_action',to:'schedule a technical review on Thursday',evidence_quote:'schedule a technical review on Thursday',rationale:'The transcript names the account and explicitly states this next action; the current source has await decision.',confidence:0.99,ambiguous:false}]}}}});
 const run=label=>{
- const start=command(`${label}-start`,['skill',ref,'--inputs',inputs,'--receipts',receipts,'--diagnostics','--json']);
+ const start=command(`${label}-start`,['skill',ref,'--registry','https://api.runx.ai','--inputs',inputs,'--receipts',receipts,'--diagnostics','--json']);
  if(start.status!=='needs_agent')throw new Error('Expected caller reconciliation');
  return command(label,['resume',start.run_id,answer,'--receipts',receipts,'--diagnostics','--json']);
 };
