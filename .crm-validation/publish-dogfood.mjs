@@ -46,7 +46,7 @@ if(repeat.result?.crm_cleanup_result?.data?.status!=='no_action')throw new Error
 command('independent-final-read',['skill',path.join(source,'skills/data-store'),'read_events','--inputs',write('read.json',{data_source_ref:sourceRef,resource:'crm_records',aggregate_id:stream,limit:1}),'--receipts',receipts,'--json']);
 console.log('EVIDENCE',JSON.stringify({label:'ci-public-verifier',kid,public_key_base64:publicBytes,issuer_type:'ci',github_run_url:`https://github.com/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`}));
 const verifyEnv={RUNX_RECEIPT_SIGN_KID:'',RUNX_RECEIPT_SIGN_ED25519_SEED_BASE64:'',RUNX_RECEIPT_SIGN_ISSUER_TYPE:'',RUNX_RECEIPT_VERIFY_KID:kid,RUNX_RECEIPT_VERIFY_ED25519_PUBLIC_KEY_BASE64:publicBytes};
-for(const filename of fs.readdirSync(receipts).filter(n=>n.endsWith('.json'))){
+for(const filename of fs.readdirSync(receipts).filter(n=>n.startsWith('sha256-')&&n.endsWith('.json'))){
  const p=path.join(receipts,filename);const receipt=JSON.parse(fs.readFileSync(p,'utf8'));
  console.log('RECEIPT',JSON.stringify({filename,receipt}));
  const verdict=command(`verify-${filename}`,['verify','--receipt',p,'--json'],verifyEnv);

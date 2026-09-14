@@ -1,7 +1,7 @@
 name: Verify published CRM cleanup package
 on:
   push:
-    branches: [codex/crm-publication]
+    branches: [codex/crm-receipt-check]
     paths: ['.github/workflows/crm-publish.yml', '.crm-validation/publish-dogfood.mjs']
   workflow_dispatch:
 permissions:
