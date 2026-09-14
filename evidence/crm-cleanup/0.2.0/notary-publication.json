@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": "publish_failed",
+    "message": "runx API receipt publish returned HTTP 502: error code: 502\n"
+  },
+  "status": "failure"
+}

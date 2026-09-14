@@ -1,0 +1,172 @@
+{
+  "schema": "runx.receipt.v1",
+  "id": "sha256:35b3a2e19e3937a8a8511594418192b37786a62090b0fe51205e863285eb7c6b",
+  "created_at": "2026-09-14T22:07:00.153Z",
+  "canonicalization": "runx.receipt.c14n.v1",
+  "issuer": {
+    "type": "ci",
+    "kid": "crm-ci-34902422180",
+    "public_key_sha256": "sha256:168498e40763aee1badd27317c2afd0ab3d7f33849c7572071e0bca98339588a"
+  },
+  "signature": {
+    "alg": "Ed25519",
+    "value": "base64:lZxBoXZTl5xwVbpSh-JpWcuEOoZwNEuvmgeVg_6gaO9brawiJaTbq4Yk3XO2wa7aePiVG0R-xTNN1MRBGHVxBA"
+  },
+  "digest": "sha256:c9bb2150dd90442ccba80658e8cb1bd14a7f7d51a08275ad05e1c1bf93deb86a",
+  "idempotency": {
+    "intent_key": "sha256:crm-cleanup-reconcile-digest-transcript-intent",
+    "trigger_fingerprint": "sha256:crm-cleanup-reconcile-digest-transcript-trigger",
+    "content_hash": "sha256:crm-cleanup-reconcile-digest-transcript-content"
+  },
+  "class": "executed",
+  "subject": {
+    "kind": "skill",
+    "ref": {
+      "type": "harness",
+      "uri": "hrn_crm-cleanup-reconcile_digest-transcript",
+      "locator": "sha256:8f044ed087dd90150adeaee50e49ebf735ee90310d4ab8eed77a2edf146cf23d"
+    },
+    "commitments": []
+  },
+  "authority": {
+    "actor_ref": {
+      "type": "principal",
+      "uri": "runx:principal:local_runtime"
+    },
+    "grant_refs": [],
+    "scope_refs": [],
+    "authority_proof_refs": [],
+    "attenuation": {
+      "parent_authority_ref": null,
+      "subset_proof": null
+    },
+    "terms": [],
+    "enforcement": {
+      "profile_hash": "sha256:635fdb0a7eef93911e3c6bd0b25b5e635edba32e0259133042b3a5f1fb19394e",
+      "execution_boundary": {
+        "kind": "native_capability"
+      },
+      "redaction_refs": [],
+      "setup_refs": [],
+      "teardown_refs": []
+    }
+  },
+  "signals": [],
+  "decisions": [
+    {
+      "decision_id": "dec_digest-transcript",
+      "choice": "open",
+      "inputs": {
+        "signal_refs": [],
+        "target_ref": null,
+        "opportunity_refs": [],
+        "selection_ref": null
+      },
+      "proposed_intent": {
+        "purpose": "Open runtime node digest-transcript",
+        "legitimacy": "Local graph execution requested this node",
+        "success_criteria": [],
+        "constraints": [],
+        "derived_from": []
+      },
+      "selected_act_id": "act_digest-transcript",
+      "selected_harness_ref": null,
+      "justification": {
+        "summary": "runtime graph planner selected this node",
+        "evidence_refs": []
+      },
+      "closure": null,
+      "artifact_refs": [
+        {
+          "type": "artifact",
+          "uri": "runx:artifact:operator_context:2f04987b609872139f8e0e15080384202ee0ca9ea3a2ed5559db726a6de47d75",
+          "provider": "runx",
+          "locator": "sha256:2f04987b609872139f8e0e15080384202ee0ca9ea3a2ed5559db726a6de47d75",
+          "label": "prepared operator context"
+        }
+      ]
+    }
+  ],
+  "acts": [
+    {
+      "id": "act_digest-transcript",
+      "form": "observation",
+      "intent": {
+        "purpose": "Run graph step digest-transcript",
+        "legitimacy": "Runtime graph execution was admitted by the local harness",
+        "success_criteria": [
+          {
+            "criterion_id": "step_outcome",
+            "statement": "runtime step completes successfully",
+            "required": true
+          }
+        ],
+        "constraints": [],
+        "derived_from": []
+      },
+      "summary": "Executed graph step digest-transcript",
+      "criterion_bindings": [
+        {
+          "criterion_id": "step_outcome",
+          "status": "verified",
+          "evidence_refs": [
+            {
+              "type": "artifact",
+              "uri": "runx:artifact:operator_context:2f04987b609872139f8e0e15080384202ee0ca9ea3a2ed5559db726a6de47d75",
+              "provider": "runx",
+              "locator": "sha256:2f04987b609872139f8e0e15080384202ee0ca9ea3a2ed5559db726a6de47d75",
+              "label": "prepared operator context"
+            }
+          ],
+          "verification_refs": [],
+          "summary": "step completed successfully"
+        }
+      ],
+      "source_refs": [],
+      "target_refs": [],
+      "artifact_refs": [
+        {
+          "type": "artifact",
+          "uri": "runx:artifact:operator_context:2f04987b609872139f8e0e15080384202ee0ca9ea3a2ed5559db726a6de47d75",
+          "provider": "runx",
+          "locator": "sha256:2f04987b609872139f8e0e15080384202ee0ca9ea3a2ed5559db726a6de47d75",
+          "label": "prepared operator context"
+        }
+      ],
+      "closure": {
+        "disposition": "closed",
+        "reason_code": "step_outcome",
+        "summary": "step completed successfully",
+        "closed_at": "2026-09-14T22:07:00.153Z"
+      }
+    }
+  ],
+  "seal": {
+    "disposition": "closed",
+    "reason_code": "step_closed",
+    "summary": "step digest-transcript completed",
+    "closed_at": "2026-09-14T22:07:00.153Z",
+    "last_observed_at": "2026-09-14T22:07:00.153Z",
+    "criteria": [
+      {
+        "criterion_id": "step_outcome",
+        "status": "verified",
+        "evidence_refs": [
+          {
+            "type": "artifact",
+            "uri": "runx:artifact:operator_context:2f04987b609872139f8e0e15080384202ee0ca9ea3a2ed5559db726a6de47d75",
+            "provider": "runx",
+            "locator": "sha256:2f04987b609872139f8e0e15080384202ee0ca9ea3a2ed5559db726a6de47d75",
+            "label": "prepared operator context"
+          }
+        ],
+        "verification_refs": [],
+        "summary": "step completed successfully"
+      }
+    ]
+  },
+  "lineage": {
+    "children": [],
+    "sync": []
+  }
+}

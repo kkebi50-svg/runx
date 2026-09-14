@@ -1,0 +1,7 @@
+{
+  "label": "ci-public-verifier",
+  "kid": "crm-ci-34902422180",
+  "public_key_base64": "e75s8rV1lf+eVTiu5QyZ8VUK7J5U3haJt2cmPzzMuf4=",
+  "issuer_type": "ci",
+  "github_run_url": "https://github.com/kkebi50-svg/runx/actions/runs/34902422180"
+}

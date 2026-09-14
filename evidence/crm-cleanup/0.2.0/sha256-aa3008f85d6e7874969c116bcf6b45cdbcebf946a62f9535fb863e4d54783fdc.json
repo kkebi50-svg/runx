@@ -1,0 +1,72 @@
+{
+  "schema": "runx.receipt.v1",
+  "id": "sha256:aa3008f85d6e7874969c116bcf6b45cdbcebf946a62f9535fb863e4d54783fdc",
+  "created_at": "2026-09-14T22:07:01.171Z",
+  "canonicalization": "runx.receipt.c14n.v1",
+  "issuer": {
+    "type": "ci",
+    "kid": "crm-ci-34902422180",
+    "public_key_sha256": "sha256:168498e40763aee1badd27317c2afd0ab3d7f33849c7572071e0bca98339588a"
+  },
+  "signature": {
+    "alg": "Ed25519",
+    "value": "base64:unMViX2zVflguEXpDHT7LlTDpn0in_c9W99nhJD3OzsPbvG0P2Y1HdAMh1rYn161nCU8zHu4NecEyZSO6-j4Ag"
+  },
+  "digest": "sha256:3195fea6ca3c0e1e9b06229b6ea0637ec6c6cc0079aa7a360f93800fbc52fcaa",
+  "idempotency": {
+    "intent_key": "sha256:data-store-read-events-graph-intent",
+    "trigger_fingerprint": "sha256:data-store-read-events-graph-trigger",
+    "content_hash": "sha256:data-store-read-events-graph-content"
+  },
+  "class": "executed",
+  "subject": {
+    "kind": "graph",
+    "ref": {
+      "type": "harness",
+      "uri": "hrn_data-store-read-events_graph",
+      "locator": "sha256:45dd047c819b37ac6770108e000976a0173a60cc52d4fcca526a4659929f2eae"
+    },
+    "commitments": []
+  },
+  "authority": {
+    "actor_ref": {
+      "type": "principal",
+      "uri": "runx:principal:local_runtime"
+    },
+    "grant_refs": [],
+    "scope_refs": [],
+    "authority_proof_refs": [],
+    "attenuation": {
+      "parent_authority_ref": null,
+      "subset_proof": null
+    },
+    "terms": [],
+    "enforcement": {
+      "profile_hash": "sha256:635fdb0a7eef93911e3c6bd0b25b5e635edba32e0259133042b3a5f1fb19394e",
+      "redaction_refs": [],
+      "setup_refs": [],
+      "teardown_refs": []
+    }
+  },
+  "signals": [],
+  "decisions": [],
+  "acts": [],
+  "seal": {
+    "disposition": "closed",
+    "reason_code": "graph_closed",
+    "summary": "graph data-store-read-events completed",
+    "closed_at": "2026-09-14T22:07:01.171Z",
+    "last_observed_at": "2026-09-14T22:07:01.171Z",
+    "criteria": []
+  },
+  "lineage": {
+    "children": [
+      {
+        "type": "receipt",
+        "uri": "runx:receipt:sha256:55a3a610387511ae9a35bd25bf11524606ac2d16a427ac3be2187af562217350",
+        "locator": "sha256:3c52a7dcfeddeffbf38a0564672f18a872ba38923da4f3f4638c1776ae6f8522"
+      }
+    ],
+    "sync": []
+  }
+}

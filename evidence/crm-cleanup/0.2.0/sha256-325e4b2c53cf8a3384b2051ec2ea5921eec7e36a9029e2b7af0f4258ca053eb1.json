@@ -1,0 +1,107 @@
+{
+  "schema": "runx.receipt.v1",
+  "id": "sha256:325e4b2c53cf8a3384b2051ec2ea5921eec7e36a9029e2b7af0f4258ca053eb1",
+  "created_at": "2026-09-14T22:07:00.315Z",
+  "canonicalization": "runx.receipt.c14n.v1",
+  "issuer": {
+    "type": "ci",
+    "kid": "crm-ci-34902422180",
+    "public_key_sha256": "sha256:168498e40763aee1badd27317c2afd0ab3d7f33849c7572071e0bca98339588a"
+  },
+  "signature": {
+    "alg": "Ed25519",
+    "value": "base64:coMd8PYJAchztzn04Mw96PsufO-yy3SQGPEppAYCmWJ7XoZqKKYaYoUYCR_Kr03vQpajTlhA3UZgvzAn2TE3Cw"
+  },
+  "digest": "sha256:5c9855d0c91a5d443fbbe76dc4ae772b2deb4017fbcd631ca50509825e49eced",
+  "idempotency": {
+    "intent_key": "sha256:crm-cleanup-reconcile-graph-intent",
+    "trigger_fingerprint": "sha256:crm-cleanup-reconcile-graph-trigger",
+    "content_hash": "sha256:crm-cleanup-reconcile-graph-content"
+  },
+  "class": "executed",
+  "subject": {
+    "kind": "graph",
+    "ref": {
+      "type": "harness",
+      "uri": "hrn_crm-cleanup-reconcile_graph",
+      "locator": "sha256:db03846b75c941b3c2ddd73643c82323ea4f32adc89fd6c8cabf3084a73cf2db"
+    },
+    "commitments": []
+  },
+  "authority": {
+    "actor_ref": {
+      "type": "principal",
+      "uri": "runx:principal:local_runtime"
+    },
+    "grant_refs": [],
+    "scope_refs": [],
+    "authority_proof_refs": [],
+    "attenuation": {
+      "parent_authority_ref": null,
+      "subset_proof": null
+    },
+    "terms": [],
+    "enforcement": {
+      "profile_hash": "sha256:635fdb0a7eef93911e3c6bd0b25b5e635edba32e0259133042b3a5f1fb19394e",
+      "redaction_refs": [],
+      "setup_refs": [],
+      "teardown_refs": []
+    }
+  },
+  "signals": [],
+  "decisions": [],
+  "acts": [],
+  "seal": {
+    "disposition": "closed",
+    "reason_code": "graph_closed",
+    "summary": "graph crm-cleanup-reconcile completed",
+    "closed_at": "2026-09-14T22:07:00.315Z",
+    "last_observed_at": "2026-09-14T22:07:00.315Z",
+    "criteria": []
+  },
+  "lineage": {
+    "children": [
+      {
+        "type": "receipt",
+        "uri": "runx:receipt:sha256:4d895f738541d8a698ba2eb17012df2d098a65a5b12fd9f3ba46532d0c3e4a07",
+        "locator": "sha256:5c49519bea422502b48a9cb16988ee95f5e6d128349f0a5a2cafb63124648dae"
+      },
+      {
+        "type": "receipt",
+        "uri": "runx:receipt:sha256:35b3a2e19e3937a8a8511594418192b37786a62090b0fe51205e863285eb7c6b",
+        "locator": "sha256:c9bb2150dd90442ccba80658e8cb1bd14a7f7d51a08275ad05e1c1bf93deb86a"
+      },
+      {
+        "type": "receipt",
+        "uri": "runx:receipt:sha256:31ff8c585eea5c6634ab5defdf6d01cabe09dc03bb99589dc112d77c2767b4c6",
+        "locator": "sha256:101ed19fb128f21b0c4cdac3d2b5e327c8136a0ae3d7480c39180aa9a9223693"
+      },
+      {
+        "type": "receipt",
+        "uri": "runx:receipt:sha256:f2cb1b0855e3128e3eb72f13eaaeefa34b053932a0545305b10b31500181ad1e",
+        "locator": "sha256:caaf425e32d47f88f027a9388fbc62b2d12b5e8638902b2200482e5788457d0a"
+      },
+      {
+        "type": "receipt",
+        "uri": "runx:receipt:sha256:bf2d96753bd17362c2425b9207888c30863855e0223a867a6ac7a67a61303479",
+        "locator": "sha256:2f4b958760126828ccc860778234f77eb0391ee9291f3a33ec632d02f932726e"
+      },
+      {
+        "type": "receipt",
+        "uri": "runx:receipt:sha256:0fa7360b3d9e6c71f1c7f634c86c4ee02d8b778e773892dab122afff1bba604e",
+        "locator": "sha256:a5668cf35c30bf140a72a216d11e14afdcbc6253e5fe5fcad3deb0c334bb50c2"
+      },
+      {
+        "type": "receipt",
+        "uri": "runx:receipt:sha256:ccf31d29ecd95a14f222b892b733b2b3cc2b8ddeb50e950af9167e563f29ec5c",
+        "locator": "sha256:f5add446a0cdc6603ec04a8e171a7bb6627d821fcd1c2f8d01cab8ff40a40311"
+      },
+      {
+        "type": "receipt",
+        "uri": "runx:receipt:sha256:17d8b7adec261f9a790093dd1582bf43f76b9151440b18175016403fcf0c5d01",
+        "locator": "sha256:a16b61ca335a2abbd79da54d3561b7227532767f7c9cc03433b48d9f59114a5d"
+      }
+    ],
+    "sync": []
+  }
+}

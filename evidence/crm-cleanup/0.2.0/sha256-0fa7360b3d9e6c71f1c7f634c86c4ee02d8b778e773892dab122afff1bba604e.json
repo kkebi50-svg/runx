@@ -1,0 +1,140 @@
+{
+  "schema": "runx.receipt.v1",
+  "id": "sha256:0fa7360b3d9e6c71f1c7f634c86c4ee02d8b778e773892dab122afff1bba604e",
+  "created_at": "2026-09-14T22:07:00.315Z",
+  "canonicalization": "runx.receipt.c14n.v1",
+  "issuer": {
+    "type": "ci",
+    "kid": "crm-ci-34902422180",
+    "public_key_sha256": "sha256:168498e40763aee1badd27317c2afd0ab3d7f33849c7572071e0bca98339588a"
+  },
+  "signature": {
+    "alg": "Ed25519",
+    "value": "base64:Cx1jcFtCdpncR0c2ahfZKJlIB1srjUcanps4yH15END0Y4Yu0Ywgy_cyB6aL30kGNjJe0Q_Gj0twRJsEOQbbDg"
+  },
+  "digest": "sha256:a5668cf35c30bf140a72a216d11e14afdcbc6253e5fe5fcad3deb0c334bb50c2",
+  "idempotency": {
+    "intent_key": "sha256:crm-cleanup-reconcile-write-intent",
+    "trigger_fingerprint": "sha256:crm-cleanup-reconcile-write-trigger",
+    "content_hash": "sha256:crm-cleanup-reconcile-write-content"
+  },
+  "class": "executed",
+  "subject": {
+    "kind": "skill",
+    "ref": {
+      "type": "harness",
+      "uri": "hrn_crm-cleanup-reconcile_write",
+      "locator": "sha256:9a4b4595f88ff6c22d5b4e653ab20a159a92c476fc4ae1c1803075f0ca867687"
+    },
+    "commitments": []
+  },
+  "authority": {
+    "actor_ref": {
+      "type": "principal",
+      "uri": "runx:principal:local_runtime"
+    },
+    "grant_refs": [],
+    "scope_refs": [],
+    "authority_proof_refs": [],
+    "attenuation": {
+      "parent_authority_ref": null,
+      "subset_proof": null
+    },
+    "terms": [],
+    "enforcement": {
+      "profile_hash": "sha256:635fdb0a7eef93911e3c6bd0b25b5e635edba32e0259133042b3a5f1fb19394e",
+      "execution_boundary": {
+        "kind": "native_capability"
+      },
+      "redaction_refs": [],
+      "setup_refs": [],
+      "teardown_refs": []
+    }
+  },
+  "signals": [],
+  "decisions": [
+    {
+      "decision_id": "dec_write",
+      "choice": "open",
+      "inputs": {
+        "signal_refs": [],
+        "target_ref": null,
+        "opportunity_refs": [],
+        "selection_ref": null
+      },
+      "proposed_intent": {
+        "purpose": "Open runtime node write",
+        "legitimacy": "Local graph execution requested this node",
+        "success_criteria": [],
+        "constraints": [],
+        "derived_from": []
+      },
+      "selected_act_id": "act_write",
+      "selected_harness_ref": null,
+      "justification": {
+        "summary": "runtime graph planner selected this node",
+        "evidence_refs": []
+      },
+      "closure": null,
+      "artifact_refs": []
+    }
+  ],
+  "acts": [
+    {
+      "id": "act_write",
+      "form": "observation",
+      "intent": {
+        "purpose": "Run graph step write",
+        "legitimacy": "Runtime graph execution was admitted by the local harness",
+        "success_criteria": [
+          {
+            "criterion_id": "step_outcome",
+            "statement": "runtime step completes successfully",
+            "required": true
+          }
+        ],
+        "constraints": [],
+        "derived_from": []
+      },
+      "summary": "Executed graph step write",
+      "criterion_bindings": [
+        {
+          "criterion_id": "step_outcome",
+          "status": "verified",
+          "evidence_refs": [],
+          "verification_refs": [],
+          "summary": "step completed successfully"
+        }
+      ],
+      "source_refs": [],
+      "target_refs": [],
+      "artifact_refs": [],
+      "closure": {
+        "disposition": "closed",
+        "reason_code": "step_outcome",
+        "summary": "step completed successfully",
+        "closed_at": "2026-09-14T22:07:00.315Z"
+      }
+    }
+  ],
+  "seal": {
+    "disposition": "closed",
+    "reason_code": "step_closed",
+    "summary": "step write completed",
+    "closed_at": "2026-09-14T22:07:00.315Z",
+    "last_observed_at": "2026-09-14T22:07:00.315Z",
+    "criteria": [
+      {
+        "criterion_id": "step_outcome",
+        "status": "verified",
+        "evidence_refs": [],
+        "verification_refs": [],
+        "summary": "step completed successfully"
+      }
+    ]
+  },
+  "lineage": {
+    "children": [],
+    "sync": []
+  }
+}

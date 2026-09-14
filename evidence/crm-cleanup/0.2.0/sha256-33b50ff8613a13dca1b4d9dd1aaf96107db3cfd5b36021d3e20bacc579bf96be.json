@@ -1,0 +1,172 @@
+{
+  "schema": "runx.receipt.v1",
+  "id": "sha256:33b50ff8613a13dca1b4d9dd1aaf96107db3cfd5b36021d3e20bacc579bf96be",
+  "created_at": "2026-09-14T22:06:59.308Z",
+  "canonicalization": "runx.receipt.c14n.v1",
+  "issuer": {
+    "type": "ci",
+    "kid": "crm-ci-34902422180",
+    "public_key_sha256": "sha256:168498e40763aee1badd27317c2afd0ab3d7f33849c7572071e0bca98339588a"
+  },
+  "signature": {
+    "alg": "Ed25519",
+    "value": "base64:Bh7iqBck3NvYr9iFyUk8TASoQ-reO1dUUZZzxfccQth5UMkKNfuNuk2gcl_OgYfwIi8_hk-rot3EkdVzm9CmBA"
+  },
+  "digest": "sha256:ea94a526a59fdb139643038b923c7344db9ea1b22677eb63f81f29f18ce47d61",
+  "idempotency": {
+    "intent_key": "sha256:data-store-append-event-append-intent",
+    "trigger_fingerprint": "sha256:data-store-append-event-append-trigger",
+    "content_hash": "sha256:data-store-append-event-append-content"
+  },
+  "class": "executed",
+  "subject": {
+    "kind": "skill",
+    "ref": {
+      "type": "harness",
+      "uri": "hrn_data-store-append-event_append",
+      "locator": "sha256:cfc8f3bf4d64275ec2d6c2fe6532821b167d62131a8b0470672c649b1c56f70a"
+    },
+    "commitments": []
+  },
+  "authority": {
+    "actor_ref": {
+      "type": "principal",
+      "uri": "runx:principal:local_runtime"
+    },
+    "grant_refs": [],
+    "scope_refs": [],
+    "authority_proof_refs": [],
+    "attenuation": {
+      "parent_authority_ref": null,
+      "subset_proof": null
+    },
+    "terms": [],
+    "enforcement": {
+      "profile_hash": "sha256:635fdb0a7eef93911e3c6bd0b25b5e635edba32e0259133042b3a5f1fb19394e",
+      "execution_boundary": {
+        "kind": "native_capability"
+      },
+      "redaction_refs": [],
+      "setup_refs": [],
+      "teardown_refs": []
+    }
+  },
+  "signals": [],
+  "decisions": [
+    {
+      "decision_id": "dec_append",
+      "choice": "open",
+      "inputs": {
+        "signal_refs": [],
+        "target_ref": null,
+        "opportunity_refs": [],
+        "selection_ref": null
+      },
+      "proposed_intent": {
+        "purpose": "Open runtime node append",
+        "legitimacy": "Local graph execution requested this node",
+        "success_criteria": [],
+        "constraints": [],
+        "derived_from": []
+      },
+      "selected_act_id": "act_append",
+      "selected_harness_ref": null,
+      "justification": {
+        "summary": "runtime graph planner selected this node",
+        "evidence_refs": []
+      },
+      "closure": null,
+      "artifact_refs": [
+        {
+          "type": "artifact",
+          "uri": "runx:artifact:operator_context:509d3760b2c4bea86101e7efd41c64bbd785f8ade95bf392c5f09ae797a44b11",
+          "provider": "runx",
+          "locator": "sha256:509d3760b2c4bea86101e7efd41c64bbd785f8ade95bf392c5f09ae797a44b11",
+          "label": "prepared operator context"
+        }
+      ]
+    }
+  ],
+  "acts": [
+    {
+      "id": "act_append",
+      "form": "observation",
+      "intent": {
+        "purpose": "Run graph step append",
+        "legitimacy": "Runtime graph execution was admitted by the local harness",
+        "success_criteria": [
+          {
+            "criterion_id": "step_outcome",
+            "statement": "runtime step completes successfully",
+            "required": true
+          }
+        ],
+        "constraints": [],
+        "derived_from": []
+      },
+      "summary": "Executed graph step append",
+      "criterion_bindings": [
+        {
+          "criterion_id": "step_outcome",
+          "status": "verified",
+          "evidence_refs": [
+            {
+              "type": "artifact",
+              "uri": "runx:artifact:operator_context:509d3760b2c4bea86101e7efd41c64bbd785f8ade95bf392c5f09ae797a44b11",
+              "provider": "runx",
+              "locator": "sha256:509d3760b2c4bea86101e7efd41c64bbd785f8ade95bf392c5f09ae797a44b11",
+              "label": "prepared operator context"
+            }
+          ],
+          "verification_refs": [],
+          "summary": "step completed successfully"
+        }
+      ],
+      "source_refs": [],
+      "target_refs": [],
+      "artifact_refs": [
+        {
+          "type": "artifact",
+          "uri": "runx:artifact:operator_context:509d3760b2c4bea86101e7efd41c64bbd785f8ade95bf392c5f09ae797a44b11",
+          "provider": "runx",
+          "locator": "sha256:509d3760b2c4bea86101e7efd41c64bbd785f8ade95bf392c5f09ae797a44b11",
+          "label": "prepared operator context"
+        }
+      ],
+      "closure": {
+        "disposition": "closed",
+        "reason_code": "step_outcome",
+        "summary": "step completed successfully",
+        "closed_at": "2026-09-14T22:06:59.308Z"
+      }
+    }
+  ],
+  "seal": {
+    "disposition": "closed",
+    "reason_code": "step_closed",
+    "summary": "step append completed",
+    "closed_at": "2026-09-14T22:06:59.308Z",
+    "last_observed_at": "2026-09-14T22:06:59.308Z",
+    "criteria": [
+      {
+        "criterion_id": "step_outcome",
+        "status": "verified",
+        "evidence_refs": [
+          {
+            "type": "artifact",
+            "uri": "runx:artifact:operator_context:509d3760b2c4bea86101e7efd41c64bbd785f8ade95bf392c5f09ae797a44b11",
+            "provider": "runx",
+            "locator": "sha256:509d3760b2c4bea86101e7efd41c64bbd785f8ade95bf392c5f09ae797a44b11",
+            "label": "prepared operator context"
+          }
+        ],
+        "verification_refs": [],
+        "summary": "step completed successfully"
+      }
+    ]
+  },
+  "lineage": {
+    "children": [],
+    "sync": []
+  }
+}

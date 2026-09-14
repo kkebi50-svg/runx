@@ -1,0 +1,2641 @@
+[
+  {
+    "label": "published-metadata",
+    "command": [
+      "runx",
+      "registry",
+      "read",
+      "kkebi50-svg/crm-cleanup@0.2.0",
+      "--registry",
+      "https://api.runx.ai",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "status": "success",
+      "registry": {
+        "action": "read",
+        "source": "remote",
+        "ref": "kkebi50-svg/crm-cleanup@0.2.0",
+        "skill": {
+          "skill_id": "kkebi50-svg/crm-cleanup",
+          "owner": "kkebi50-svg",
+          "name": "crm-cleanup",
+          "description": "Read current CRM records from an operator-selected source, reconcile a call transcript into grounded allowlisted field updates, execute the changes once, and verify independent readback. Return uncertainty or no-op without writing.",
+          "category": "growth",
+          "version": "0.2.0",
+          "digest": "9bc7edb3d14a21e4442e42d1d10233c3e5571b26a1014ee388b9cddd0527a8e5",
+          "markdown": "---\nname: crm-cleanup\ndescription: Read current CRM records from an operator-selected source, reconcile a call transcript into grounded allowlisted field updates, execute the changes once, and verify independent readback. Return uncertainty or no-op without writing.\nregistry_owner: kkebi50-svg\n---\n\n# CRM Cleanup\n\nUse CRM Cleanup after a call when the CRM should reflect a customer's explicit\nstatements and agreed next actions. It reads the current record set at execution\ntime, interprets the transcript, applies the supported changes through the\noperator's selected data transport, and checks the resulting records independently.\nIt does not find new prospects or assign leads; those jobs belong to lead-enrichment\nand lead-router. A transcript alone is not current CRM state, and a quoted sentence\nalone does not prove that a proposed value follows from it.\n\n## Source and authority\n\nSelect `data_source_ref`, `resource`, and `aggregate_id` for the exact record set.\nThe current stream head must be a complete `crm.snapshot` event with `records`:\neach record has a unique stable `id` and a `fields` object of scalar CRM values.\nThis event-sourced CRM contract makes each committed state independently readable.\nThe source must already exist; the skill never seeds or fabricates a production\nsource. Missing, malformed, duplicate-identity, or oversized snapshots stop the run.\n\nThe canonical data-store capabilities own source bindings, scoped reads, appends,\nversion checks, idempotency, and their receipts. The operator chooses the adapter\noutside this skill. Native SQLite behind an unbound `local://` source is useful as\nan explicitly synthetic mock CRM. It is real durable transport execution, but it\nis not evidence of a live Salesforce, HubSpot, or customer CRM update. To use another\nCRM, bind a conforming adapter that exposes this snapshot contract and independently\nreads its authoritative state; do not describe an unconnected event log as that CRM.\n\n`runx:data:read` admits the source reads and `runx:data:append` admits the exact\nmutation. `crm_schema.allowed_fields` further limits CRM field authority. It cannot\ngrant storage access. Set `minimum_confidence` between 0.9 and 1, provide the complete\ntranscript (at most 16,000 characters), and supply a stable `operation_key`. Never\nuse this workflow to infer permission from a customer sentence or to process private\ndata without the operator's authorization.\n\nFor a synthetic trial, initialize the source separately with data-store's\n`append_event` operation: expected version 0, a unique seed idempotency key, and an\nevent such as `{\"type\":\"crm.snapshot\",\"records\":[{\"id\":\"acct-globex\",\"fields\":{\"next_action\":\"none\"}}]}`.\nThen use the copy-valid invocation exposed by `runx skill inspect`. Harness setup\nis isolated and synthetic; a separate dogfood run must read a persisted runtime\nsource rather than paste the fixture as current CRM evidence.\n\n## Procedure and judgment\n\nThe default `reconcile` runner first reads the latest bounded source event and\nbinds the transcript through native digest evidence. The interpreting agent extracts\ntakeaways and candidate updates. Each candidate names the exact record and field,\ntarget value, verbatim quote, confidence, rationale, and any ambiguity. Record\nidentity must be established by the transcript and the supplied records. Do not\nmatch an unnamed person or company by guesswork.\n\nDeterministic CRM policy rejects unknown records, forbidden fields, duplicate field\ntargets, absent quotes, empty values, and low confidence or ambiguous interpretations.\nAny unresolved candidate prevents the entire mutation, preserving all findings for\nreview. A value already present is a no-op. The module checks relationships specific\nto CRM policy; it does not access storage, make network calls, handle credentials,\ncompute receipt hashes, or substitute for the native runtime.\n\nIf every proposed change is admissible, the runner appends one complete snapshot\nusing the exact version it observed, then performs a separate source read. The\nversion, event identity, event digest and complete record set must match the native\nwrite result and planned state before the result says `verified`. The native\ntransport owns concurrency and idempotency. A successful agent answer or a sealed\nproposal is never proof that the write occurred.\n\n## Results and recovery\n\n`crm_cleanup_result` contains `takeaways`, `field_updates`, named `findings`, original\nsource identity and version, transcript digest, and `write_result` with before/after\nrecords. Each field update preserves its prior value and transcript evidence.\n\n- `verified`: the transport confirmed the event and independent readback matched.\n- `no_action`: the records already match or no change was supported; no append ran.\n- `needs_review`: uncertainty or invalid candidate evidence prevented all updates.\n- `refused`: the required current CRM snapshot was not usable.\n- `conflict`: the native transport rejected a stale version or inconsistent retry.\n- `unverified`: the effect or its independent readback could not be confirmed.\n\n`write_performed` describes a newly committed event in this invocation; an\n`idempotent_replay` can be verified without another write. `after: null` means the\npost-operation state is unknown. Never present the planned state as observed state.\nA native transport or worker failure can terminate execution before a final result;\ninspect the runtime's failure receipt and retain uncertainty about any earlier effect.\n\nFor a conflict, read the current source and reconcile again rather than forcing a\nstale snapshot. After a lost response, inspect the source and retry the exact operation\nidentity; never invent a new key merely to make the write succeed. Resolve review\nfindings with additional evidence before another attempt. Large archives belong\nupstream: this operation handles at most 50 current records, 50 fields per record,\nand 50 candidate updates, not unbounded history.\n\nWhen called downstream of call processing, reuse its transcript and field schema\nwithout repeating transcription. Preserve the source identity, takeaways, evidence,\nfindings and actual effect status for the next operator. Publication is separate:\nthe canonical registry CLI publishes the exact validated package, and a clean install,\nhosted harness, and separate source-read/write/readback run establish distribution\nand execution evidence. A local fixture success is only harness evidence.\n\n## Agent task contracts\n\n### `crm-cleanup-reconcile`\n\nRead `transcript`, `crm_records`, and `crm_schema`. Return the typed `update_draft`\nwith `takeaways`, `uncertainties`, and `updates`. Every update has `record_id`, `field`,\n`to`, `evidence_quote`, `rationale`, `confidence`, and `ambiguous`.\n\nIf `source_ready` is false, return no updates and state that source records are\nunavailable. Deterministic policy will refuse the run; do not fabricate a replacement.\n\nPropose only changes actually supported by the transcript, bound to one current\nrecord and an allowed field. Copy evidence verbatim. Explain why the quote entails\nthe value and identifies the record; do not turn vague sentiment into a definite\nstatus or score. Report conflicts and missing identity as uncertainties. An empty\nupdate array is correct when the call changes nothing. Never invent records, quotes,\nvalues, approval, transport execution, or readback evidence.",
+          "profile_digest": "c3522c3ae64a4b4904a417256639056144ad93311215f6b634873a4f110e5094",
+          "runner_names": [
+            "reconcile"
+          ],
+          "source_type": "graph",
+          "trust_tier": "community",
+          "required_scopes": [
+            "runx:data:read",
+            "runx:data:append"
+          ],
+          "tags": [],
+          "publisher": {
+            "kind": "user",
+            "id": "user_ae3993596351709de0e8aa99",
+            "handle": "kkebi50-svg",
+            "display_name": "kkebi50-svg"
+          },
+          "attestations": [
+            {
+              "kind": "publisher",
+              "id": "publisher:user_ae3993596351709de0e8aa99",
+              "status": "declared",
+              "summary": "kkebi50-svg",
+              "issued_at": "2026-09-14T21:54:57.719Z",
+              "metadata": {
+                "publisher_display_name": "kkebi50-svg",
+                "publisher_handle": "kkebi50-svg",
+                "publisher_id": "user_ae3993596351709de0e8aa99",
+                "publisher_kind": "user",
+                "trust_tier": "community"
+              }
+            }
+          ],
+          "install_command": "runx add kkebi50-svg/crm-cleanup@0.2.0 --registry https://api.runx.ai",
+          "run_command": "runx skill kkebi50-svg/crm-cleanup@0.2.0 --registry https://api.runx.ai"
+        }
+      }
+    }
+  },
+  {
+    "label": "clean-install",
+    "command": [
+      "runx",
+      "add",
+      "kkebi50-svg/crm-cleanup@0.2.0",
+      "--registry",
+      "https://api.runx.ai",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "status": "success",
+      "registry": {
+        "action": "install",
+        "source": "remote",
+        "ref": "kkebi50-svg/crm-cleanup@0.2.0",
+        "install": {
+          "status": "installed",
+          "destination": "/home/runner/work/_temp/crm-clean-install/skills/kkebi50-svg/crm-cleanup/0.2.0/SKILL.md",
+          "skill_name": "crm-cleanup",
+          "source": "runx-registry",
+          "source_label": "runx registry",
+          "skill_id": "kkebi50-svg/crm-cleanup",
+          "version": "0.2.0",
+          "digest": "sha256:9bc7edb3d14a21e4442e42d1d10233c3e5571b26a1014ee388b9cddd0527a8e5",
+          "profile_digest": "sha256:c3522c3ae64a4b4904a417256639056144ad93311215f6b634873a4f110e5094",
+          "profile_state_path": "/home/runner/work/_temp/crm-clean-install/skills/kkebi50-svg/crm-cleanup/0.2.0/.runx/profile.json",
+          "runner_names": [
+            "reconcile"
+          ],
+          "trust_tier": "community"
+        },
+        "receipt_metadata": {
+          "destination": "/home/runner/work/_temp/crm-clean-install/skills/kkebi50-svg/crm-cleanup/0.2.0/SKILL.md",
+          "digest": "sha256:9bc7edb3d14a21e4442e42d1d10233c3e5571b26a1014ee388b9cddd0527a8e5",
+          "install_count": 6,
+          "package_digest": "49f53388a038abb405a9c7a3a95fc0ad31404963b9237a2cc7376063f1438800",
+          "profile_digest": "sha256:c3522c3ae64a4b4904a417256639056144ad93311215f6b634873a4f110e5094",
+          "publisher": {
+            "display_name": "kkebi50-svg",
+            "handle": "kkebi50-svg",
+            "id": "user_ae3993596351709de0e8aa99",
+            "kind": "user"
+          },
+          "ref": "kkebi50-svg/crm-cleanup@0.2.0",
+          "skill_id": "kkebi50-svg/crm-cleanup",
+          "source_label": "runx registry",
+          "status": "installed",
+          "trust_tier": "community",
+          "version": "0.2.0"
+        }
+      }
+    }
+  },
+  {
+    "label": "seed-synthetic-source",
+    "command": [
+      "runx",
+      "skill",
+      "/home/runner/work/runx/runx/submission/skills/data-store",
+      "append_event",
+      "--inputs",
+      "seed.json",
+      "--receipts",
+      "/home/runner/work/_temp/crm-clean-install/receipts",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "artifact_refs": [
+        {
+          "bytes": 1324,
+          "digest": "sha256:f5a85ada7be7452cf323437225067ff32bf43fb9bea5676cedb5abfbf6a48a36",
+          "media_type": "application/json",
+          "path": "/home/runner/work/_temp/crm-clean-install/.runx/artifacts/skill-runs/run_append_event_aeaf612bf3965b75/diagnostics/execution-f5a85ada7be7452cf323437225067ff32bf43fb9bea5676cedb5abfbf6a48a36.json",
+          "ref": "runx:project-artifact:sha256:f5a85ada7be7452cf323437225067ff32bf43fb9bea5676cedb5abfbf6a48a36",
+          "schema": "runx.project_artifact_ref.v1"
+        }
+      ],
+      "closure": {
+        "closed_at": "2026-09-14T22:06:59.308Z",
+        "disposition": "closed",
+        "reason_code": "graph_closed",
+        "summary": "graph data-store-append-event completed"
+      },
+      "diagnostics_ref": {
+        "bytes": 1324,
+        "digest": "sha256:f5a85ada7be7452cf323437225067ff32bf43fb9bea5676cedb5abfbf6a48a36",
+        "media_type": "application/json",
+        "path": "/home/runner/work/_temp/crm-clean-install/.runx/artifacts/skill-runs/run_append_event_aeaf612bf3965b75/diagnostics/execution-f5a85ada7be7452cf323437225067ff32bf43fb9bea5676cedb5abfbf6a48a36.json",
+        "ref": "runx:project-artifact:sha256:f5a85ada7be7452cf323437225067ff32bf43fb9bea5676cedb5abfbf6a48a36",
+        "schema": "runx.project_artifact_ref.v1"
+      },
+      "next": null,
+      "outcome": "completed",
+      "receipt_id": "sha256:75f0f1f6ca968020397d43aad6b0f121ff1a27b16a956928170e52131590867a",
+      "result": {
+        "data_operation_result": {
+          "data": {
+            "after_version": 1,
+            "aggregate_id": "demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+            "before_version": 0,
+            "data_source_ref": "local://crm/dogfood",
+            "event_digest": "sha256:5adbce7c9bd9e95d2c16e0e4ca4a30cd9d05623b320cf3c49c4111dfba0bc984",
+            "event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:1",
+            "events": [],
+            "idempotency_key": "seed",
+            "operation": "append_event",
+            "projection": null,
+            "projection_digest": "sha256:41c83ec9d8eac9de13f87b8a9655b42fdfee19849e22cd3634681654ef3d2faa",
+            "provider": "sqlite-event-store",
+            "provider_evidence": {
+              "adapter": "data.sqlite",
+              "aggregate_id": "demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+              "data_source_ref_digest": "sha256:e7ece5d14b82bfb7c0e698c8e7841b48cd19eca33ff7c236d262ffbc3ce2d75f",
+              "provider": "sqlite-event-store",
+              "resource": "crm_records",
+              "storage_class": "sqlite"
+            },
+            "redactions": [],
+            "resource": "crm_records",
+            "result_digest": "sha256:54ff1ef938ea5fe414a7250483806b6aa3df3c6a4db8f8cd8946fa246f141dd5",
+            "rows": [],
+            "schema": "runx.data.operation_result.v1",
+            "status": "committed",
+            "stop_conditions": []
+          }
+        }
+      },
+      "run_id": "run_append_event_aeaf612bf3965b75",
+      "runner": "append_event",
+      "schema": "runx.skill_run.v1",
+      "skill_name": "data-store",
+      "status": "sealed"
+    }
+  },
+  {
+    "label": "dogfood-start",
+    "command": [
+      "runx",
+      "skill",
+      "kkebi50-svg/crm-cleanup@0.2.0",
+      "--registry",
+      "https://api.runx.ai",
+      "--inputs",
+      "input.json",
+      "--receipts",
+      "/home/runner/work/_temp/crm-clean-install/receipts",
+      "--diagnostics",
+      "--json"
+    ],
+    "exit_code": 2,
+    "value": {
+      "outcome": "deferred",
+      "registry_provenance": {
+        "digest": "sha256:9bc7edb3d14a21e4442e42d1d10233c3e5571b26a1014ee388b9cddd0527a8e5",
+        "profile_digest": "sha256:c3522c3ae64a4b4904a417256639056144ad93311215f6b634873a4f110e5094",
+        "registry_key_id": "runx-registry-ed25519-v1",
+        "registry_source": "remote https://api.runx.ai",
+        "registry_source_fingerprint": "ba1ac16b631195fd",
+        "skill_id": "kkebi50-svg/crm-cleanup",
+        "trust_state": "trusted",
+        "trust_tier": "community",
+        "version": "0.2.0"
+      },
+      "requests": [
+        {
+          "id": "agent_task.crm-cleanup-reconcile.output",
+          "invocation": {
+            "agent": "reviewer",
+            "envelope": {
+              "allowed_tools": [],
+              "current_context": [],
+              "execution_location": {
+                "skill_directory": "/home/runner/.runx/registry-skills/ba1ac16b631195fd/kkebi50-svg/crm-cleanup/0.2.0/3b309cddedf9c48b/kkebi50-svg/crm-cleanup/0.2.0"
+              },
+              "historical_context": [],
+              "inputs": {
+                "aggregate_id": "demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                "crm_records": [
+                  {
+                    "fields": {
+                      "next_action": "await decision",
+                      "stage": "discovery"
+                    },
+                    "id": "northstar-demo"
+                  }
+                ],
+                "crm_schema": {
+                  "allowed_fields": [
+                    "next_action",
+                    "stage"
+                  ],
+                  "minimum_confidence": 0.95
+                },
+                "data_source_ref": "local://crm/dogfood",
+                "operation_key": "call-demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                "resource": "crm_records",
+                "source_ready": true,
+                "transcript": "Northstar demo account: the next action is schedule a technical review on Thursday. Keep the stage at discovery until that review."
+              },
+              "instructions": "---\nname: crm-cleanup\ndescription: Read current CRM records from an operator-selected source, reconcile a call transcript into grounded allowlisted field updates, execute the changes once, and verify independent readback. Return uncertainty or no-op without writing.\nregistry_owner: kkebi50-svg\n---\n\n# CRM Cleanup\n\nUse CRM Cleanup after a call when the CRM should reflect a customer's explicit\nstatements and agreed next actions. It reads the current record set at execution\ntime, interprets the transcript, applies the supported changes through the\noperator's selected data transport, and checks the resulting records independently.\nIt does not find new prospects or assign leads; those jobs belong to lead-enrichment\nand lead-router. A transcript alone is not current CRM state, and a quoted sentence\nalone does not prove that a proposed value follows from it.\n\n## Source and authority\n\nSelect `data_source_ref`, `resource`, and `aggregate_id` for the exact record set.\nThe current stream head must be a complete `crm.snapshot` event with `records`:\neach record has a unique stable `id` and a `fields` object of scalar CRM values.\nThis event-sourced CRM contract makes each committed state independently readable.\nThe source must already exist; the skill never seeds or fabricates a production\nsource. Missing, malformed, duplicate-identity, or oversized snapshots stop the run.\n\nThe canonical data-store capabilities own source bindings, scoped reads, appends,\nversion checks, idempotency, and their receipts. The operator chooses the adapter\noutside this skill. Native SQLite behind an unbound `local://` source is useful as\nan explicitly synthetic mock CRM. It is real durable transport execution, but it\nis not evidence of a live Salesforce, HubSpot, or customer CRM update. To use another\nCRM, bind a conforming adapter that exposes this snapshot contract and independently\nreads its authoritative state; do not describe an unconnected event log as that CRM.\n\n`runx:data:read` admits the source reads and `runx:data:append` admits the exact\nmutation. `crm_schema.allowed_fields` further limits CRM field authority. It cannot\ngrant storage access. Set `minimum_confidence` between 0.9 and 1, provide the complete\ntranscript (at most 16,000 characters), and supply a stable `operation_key`. Never\nuse this workflow to infer permission from a customer sentence or to process private\ndata without the operator's authorization.\n\nFor a synthetic trial, initialize the source separately with data-store's\n`append_event` operation: expected version 0, a unique seed idempotency key, and an\nevent such as `{\"type\":\"crm.snapshot\",\"records\":[{\"id\":\"acct-globex\",\"fields\":{\"next_action\":\"none\"}}]}`.\nThen use the copy-valid invocation exposed by `runx skill inspect`. Harness setup\nis isolated and synthetic; a separate dogfood run must read a persisted runtime\nsource rather than paste the fixture as current CRM evidence.\n\n## Procedure and judgment\n\nThe default `reconcile` runner first reads the latest bounded source event and\nbinds the transcript through native digest evidence. The interpreting agent extracts\ntakeaways and candidate updates. Each candidate names the exact record and field,\ntarget value, verbatim quote, confidence, rationale, and any ambiguity. Record\nidentity must be established by the transcript and the supplied records. Do not\nmatch an unnamed person or company by guesswork.\n\nDeterministic CRM policy rejects unknown records, forbidden fields, duplicate field\ntargets, absent quotes, empty values, and low confidence or ambiguous interpretations.\nAny unresolved candidate prevents the entire mutation, preserving all findings for\nreview. A value already present is a no-op. The module checks relationships specific\nto CRM policy; it does not access storage, make network calls, handle credentials,\ncompute receipt hashes, or substitute for the native runtime.\n\nIf every proposed change is admissible, the runner appends one complete snapshot\nusing the exact version it observed, then performs a separate source read. The\nversion, event identity, event digest and complete record set must match the native\nwrite result and planned state before the result says `verified`. The native\ntransport owns concurrency and idempotency. A successful agent answer or a sealed\nproposal is never proof that the write occurred.\n\n## Results and recovery\n\n`crm_cleanup_result` contains `takeaways`, `field_updates`, named `findings`, original\nsource identity and version, transcript digest, and `write_result` with before/after\nrecords. Each field update preserves its prior value and transcript evidence.\n\n- `verified`: the transport confirmed the event and independent readback matched.\n- `no_action`: the records already match or no change was supported; no append ran.\n- `needs_review`: uncertainty or invalid candidate evidence prevented all updates.\n- `refused`: the required current CRM snapshot was not usable.\n- `conflict`: the native transport rejected a stale version or inconsistent retry.\n- `unverified`: the effect or its independent readback could not be confirmed.\n\n`write_performed` describes a newly committed event in this invocation; an\n`idempotent_replay` can be verified without another write. `after: null` means the\npost-operation state is unknown. Never present the planned state as observed state.\nA native transport or worker failure can terminate execution before a final result;\ninspect the runtime's failure receipt and retain uncertainty about any earlier effect.\n\nFor a conflict, read the current source and reconcile again rather than forcing a\nstale snapshot. After a lost response, inspect the source and retry the exact operation\nidentity; never invent a new key merely to make the write succeed. Resolve review\nfindings with additional evidence before another attempt. Large archives belong\nupstream: this operation handles at most 50 current records, 50 fields per record,\nand 50 candidate updates, not unbounded history.\n\nWhen called downstream of call processing, reuse its transcript and field schema\nwithout repeating transcription. Preserve the source identity, takeaways, evidence,\nfindings and actual effect status for the next operator. Publication is separate:\nthe canonical registry CLI publishes the exact validated package, and a clean install,\nhosted harness, and separate source-read/write/readback run establish distribution\nand execution evidence. A local fixture success is only harness evidence.\n\n## Agent task contracts\n\n### `crm-cleanup-reconcile`\n\nRead `transcript`, `crm_records`, and `crm_schema`. Return the typed `update_draft`\nwith `takeaways`, `uncertainties`, and `updates`. Every update has `record_id`, `field`,\n`to`, `evidence_quote`, `rationale`, `confidence`, and `ambiguous`.\n\nIf `source_ready` is false, return no updates and state that source records are\nunavailable. Deterministic policy will refuse the run; do not fabricate a replacement.\n\nPropose only changes actually supported by the transcript, bound to one current\nrecord and an allowed field. Copy evidence verbatim. Explain why the quote entails\nthe value and identifies the record; do not turn vague sentiment into a definite\nstatus or score. Report conflicts and missing identity as uncertainties. An empty\nupdate array is correct when the call changes nothing. Never invent records, quotes,\nvalues, approval, transport execution, or readback evidence.",
+              "instructions_sha256": "sha256:9bc7edb3d14a21e4442e42d1d10233c3e5571b26a1014ee388b9cddd0527a8e5",
+              "output": {
+                "update_draft": {
+                  "schema": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "takeaways": {
+                        "items": {
+                          "maxLength": 2000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "maxItems": 50,
+                        "type": "array"
+                      },
+                      "uncertainties": {
+                        "items": {
+                          "maxLength": 2000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "maxItems": 50,
+                        "type": "array"
+                      },
+                      "updates": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "ambiguous": {
+                              "type": "boolean"
+                            },
+                            "confidence": {
+                              "maximum": 1,
+                              "minimum": 0,
+                              "type": "number"
+                            },
+                            "evidence_quote": {
+                              "maxLength": 4000,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "field": {
+                              "maxLength": 200,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "rationale": {
+                              "maxLength": 2000,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "record_id": {
+                              "maxLength": 200,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "to": {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "record_id",
+                            "field",
+                            "to",
+                            "evidence_quote",
+                            "rationale",
+                            "confidence",
+                            "ambiguous"
+                          ],
+                          "type": "object"
+                        },
+                        "maxItems": 50,
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "takeaways",
+                      "uncertainties",
+                      "updates"
+                    ]
+                  },
+                  "type": "object"
+                }
+              },
+              "output_schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "update_draft": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "takeaways": {
+                        "items": {
+                          "maxLength": 2000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "maxItems": 50,
+                        "type": "array"
+                      },
+                      "uncertainties": {
+                        "items": {
+                          "maxLength": 2000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "maxItems": 50,
+                        "type": "array"
+                      },
+                      "updates": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "ambiguous": {
+                              "type": "boolean"
+                            },
+                            "confidence": {
+                              "maximum": 1,
+                              "minimum": 0,
+                              "type": "number"
+                            },
+                            "evidence_quote": {
+                              "maxLength": 4000,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "field": {
+                              "maxLength": 200,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "rationale": {
+                              "maxLength": 2000,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "record_id": {
+                              "maxLength": 200,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "to": {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "record_id",
+                            "field",
+                            "to",
+                            "evidence_quote",
+                            "rationale",
+                            "confidence",
+                            "ambiguous"
+                          ],
+                          "type": "object"
+                        },
+                        "maxItems": 50,
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "takeaways",
+                      "uncertainties",
+                      "updates"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "update_draft"
+                ],
+                "type": "object"
+              },
+              "provenance": [
+                {
+                  "from_step": "prepare",
+                  "input": "crm_records",
+                  "output": "crm_source.data.records",
+                  "receipt_id": "sha256:31ff8c585eea5c6634ab5defdf6d01cabe09dc03bb99589dc112d77c2767b4c6"
+                },
+                {
+                  "from_step": "prepare",
+                  "input": "source_ready",
+                  "output": "crm_source.data.ready",
+                  "receipt_id": "sha256:31ff8c585eea5c6634ab5defdf6d01cabe09dc03bb99589dc112d77c2767b4c6"
+                }
+              ],
+              "requirements": {
+                "declaration": {},
+                "execution_boundary": {
+                  "kind": "remote_provider"
+                }
+              },
+              "run_id": "run_reconcile_b9e05fa46d22e728",
+              "skill": "reconcile",
+              "step_id": "reconcile",
+              "trust_boundary": "runtime-governed: caller-mediated resolution is the default; an in-process model loop runs only with explicit per-run managed-agent consent, and every resolution is receipt-bound",
+              "voice_profile": {
+                "content": "# runx Voice Grammar\n\nVoice rules are lexical and grammatical. Grammar is the one that matters.\nModels pass word filters easily. Structural patterns are what give AI writing\naway, and they are what this contract targets.\n\nThis file is prompt contract, not only review policy. Skill instructions\nreference it so the agent generates better work before any downstream gate\nruns. Runx ships this canonical profile in the native runtime, injects the full\ndocument into agent contexts as `voice_profile`, and pins its hash in signed\nreceipt criteria. An explicit `RUNX_VOICE_PROFILE_PATH` or a workspace profile\ncan replace the bundled default for a governed run.\n\nThis default applies across users and projects. Project-specific voice belongs\nin an explicit workspace profile.\n\n## Lexical Anti-Patterns\n\nBanned openers:\n\n- \"let's dive in\", \"in this article\", \"in this post\", \"in this guide\"\n- \"it's worth noting\", \"it is worth noting\"\n- \"as we all know\", \"as you know\"\n\nBanned words when used as self-congratulation or filler:\n\n- leverage, synergy, innovative, cutting-edge, passionate, seamless, robust,\n  powerful, comprehensive, holistic, game-changing, revolutionary\n- \"simply\", \"easily\", \"just\" as adverb softeners (\"simply run\", \"just\n  install\")\n\nBanned closings:\n\n- trailing summaries of what was just said\n- \"hope this helps\", \"happy coding\", \"stay tuned\"\n- \"in summary\", \"to summarize\", \"in conclusion\"\n\n## Grammatical Anti-Patterns\n\nThese are the rules that separate this contract from a word filter. Word\nfilters fail under pressure; structural rules are the ones the agent has to\ninternalise.\n\n- Em dashes. Use comma, semicolon, or period. One em dash per long piece is\n  tolerated; systematic use is banned.\n- Triple anaphora. Three consecutive sentences, bullets, or clauses starting\n  with the same word or phrase (\"no X, no Y, no Z\", \"keep X, keep Y, keep\n  Z\"). Allowed once per document; never as default emphasis.\n- Paired-parallel punchlines. Two sentences at paragraph close with matching\n  grammatical skeletons (\"X does A. Y does B.\"), when the parallelism carries\n  rhythm rather than meaning. Cut or reshape.\n- Stacked rhetorical Q&A. Two or more back-to-back \"Why X? Because Y.\"\n  structures. Rewrite as assertion.\n- Meta-commentary. \"This isn't about X, it's about Y\", \"what this really\n  means\", \"the narrow honest claim\", \"this page is not about\".\n- Performative honesty openers. \"Honestly:\", \"Frankly:\", \"The truth is\",\n  \"Let me be direct:\".\n- Mic-drop cadence as default closer. Short declarative one-liner ending\n  every paragraph. Occasional yes, systematic no.\n- Footer blocks on short pieces. \"Sources:\", \"Key takeaways:\", \"TL;DR\", \"In\n  summary:\".\n\n## Structural Rules\n\n- Open with a concrete image, fact, or provocation. Never a preamble.\n- Sections start with the point, not a transition.\n- Vary sentence length within a paragraph. Do not set a rhythm and ride it.\n- Mix register. High (historical parallel, philosophical framing) and low\n  (blunt, concrete) in the same paragraph is fine.\n- Metaphors as framing devices that carry the piece, not decoration. One\n  sustained metaphor beats three throwaway ones.\n- Semicolons over dashes for introducing elaboration.\n\n## Calibration Test\n\nBefore declaring a draft ready, read the last two sentences of each paragraph\naloud. If consecutive paragraphs share a grammatical skeleton, one of them is\nserving rhythm instead of meaning. Cut or reshape.\n\nThe same test applied at piece level: if you can delete every paragraph's\nlast sentence and the piece still holds, those sentences were rhythm.\n\n## Technical Writing\n\nSame voice applied to engineering. No register drop into tutorial-speak.\n\n- Show the code, explain the why, skip the obvious.\n- No \"bam, problem solved!\", no \"let's take a quick look at\", no \"and voilà\".\n- Code comments follow the code convention, not this voice contract.\n- Error messages and CLI output stay terse and factual; they are interface,\n  not prose.\n\n## Stop Conditions\n\nWhen the voice contract cannot be met honestly, stop rather than soften:\n\n- `voice_mismatch`: the artifact would require generic AI framing, filler\n  structure, or register drop to meet the surface's expectation. Return the\n  draft with the mismatch named.\n- `evidence_too_thin_for_voice`: the voice contract requires claim-weight\n  that the evidence cannot support. Return `needs_more_evidence`.\n",
+                "path": "VOICE.md",
+                "root_path": "runx://profiles",
+                "sha256": "sha256:b890ab7e9d39860174a0f1b6f99e4ff3d9aa4187824aace3a21811b8317a5920"
+              }
+            },
+            "id": "agent_task.crm-cleanup-reconcile.output",
+            "source_type": "agent-task",
+            "task": "crm-cleanup-reconcile"
+          },
+          "kind": "agent_act"
+        }
+      ],
+      "run_id": "run_reconcile_b9e05fa46d22e728",
+      "runner": "reconcile",
+      "schema": "runx.skill_run.v1",
+      "skill_name": "crm-cleanup",
+      "status": "needs_agent"
+    }
+  },
+  {
+    "label": "dogfood",
+    "command": [
+      "runx",
+      "resume",
+      "run_reconcile_b9e05fa46d22e728",
+      "answer.json",
+      "--receipts",
+      "/home/runner/work/_temp/crm-clean-install/receipts",
+      "--diagnostics",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "closure": {
+        "closed_at": "2026-09-14T22:07:00.315Z",
+        "disposition": "closed",
+        "reason_code": "graph_closed",
+        "summary": "graph crm-cleanup-reconcile completed"
+      },
+      "context": {
+        "step_outputs": {
+          "digest-transcript": {
+            "digest_result": {
+              "data": {
+                "algorithm": "sha256",
+                "digest": "sha256:fd6cd30cb07d2f85225825825e97032109270cf5ab5c1c1e5d26db7f8f48a2a0"
+              }
+            }
+          },
+          "finalize-written": {
+            "crm_cleanup_result": {
+              "data": {
+                "field_updates": [
+                  {
+                    "ambiguous": false,
+                    "confidence": 0.99,
+                    "evidence_quote": "schedule a technical review on Thursday",
+                    "field": "next_action",
+                    "from": "await decision",
+                    "rationale": "The transcript names the account and explicitly states this next action; the current source has await decision.",
+                    "record_id": "northstar-demo",
+                    "to": "schedule a technical review on Thursday"
+                  }
+                ],
+                "findings": [],
+                "source": {
+                  "aggregate_id": "demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                  "data_source_ref": "local://crm/dogfood",
+                  "digest": "sha256:5adbce7c9bd9e95d2c16e0e4ca4a30cd9d05623b320cf3c49c4111dfba0bc984",
+                  "event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:1",
+                  "resource": "crm_records",
+                  "version": 1
+                },
+                "status": "verified",
+                "takeaways": [
+                  "Northstar agreed to a Thursday technical review.",
+                  "The discovery stage remains unchanged."
+                ],
+                "transcript_digest": "sha256:fd6cd30cb07d2f85225825825e97032109270cf5ab5c1c1e5d26db7f8f48a2a0",
+                "write_result": {
+                  "after": [
+                    {
+                      "fields": {
+                        "next_action": "schedule a technical review on Thursday",
+                        "stage": "discovery"
+                      },
+                      "id": "northstar-demo"
+                    }
+                  ],
+                  "after_version": 2,
+                  "attempted": true,
+                  "before": [
+                    {
+                      "fields": {
+                        "next_action": "await decision",
+                        "stage": "discovery"
+                      },
+                      "id": "northstar-demo"
+                    }
+                  ],
+                  "before_version": 1,
+                  "event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:2",
+                  "status": "committed",
+                  "verified": true,
+                  "write_performed": true
+                }
+              }
+            }
+          },
+          "plan": {
+            "crm_plan": {
+              "data": {
+                "after": [
+                  {
+                    "fields": {
+                      "next_action": "schedule a technical review on Thursday",
+                      "stage": "discovery"
+                    },
+                    "id": "northstar-demo"
+                  }
+                ],
+                "before": [
+                  {
+                    "fields": {
+                      "next_action": "await decision",
+                      "stage": "discovery"
+                    },
+                    "id": "northstar-demo"
+                  }
+                ],
+                "decision": "execute",
+                "event": {
+                  "cleanup": {
+                    "field_updates": [
+                      {
+                        "ambiguous": false,
+                        "confidence": 0.99,
+                        "evidence_quote": "schedule a technical review on Thursday",
+                        "field": "next_action",
+                        "from": "await decision",
+                        "rationale": "The transcript names the account and explicitly states this next action; the current source has await decision.",
+                        "record_id": "northstar-demo",
+                        "to": "schedule a technical review on Thursday"
+                      }
+                    ],
+                    "operation_key": "call-demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                    "source_event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:1",
+                    "transcript_digest": "sha256:fd6cd30cb07d2f85225825825e97032109270cf5ab5c1c1e5d26db7f8f48a2a0"
+                  },
+                  "records": [
+                    {
+                      "fields": {
+                        "next_action": "schedule a technical review on Thursday",
+                        "stage": "discovery"
+                      },
+                      "id": "northstar-demo"
+                    }
+                  ],
+                  "type": "crm.snapshot"
+                },
+                "expected_version": 1,
+                "field_updates": [
+                  {
+                    "ambiguous": false,
+                    "confidence": 0.99,
+                    "evidence_quote": "schedule a technical review on Thursday",
+                    "field": "next_action",
+                    "from": "await decision",
+                    "rationale": "The transcript names the account and explicitly states this next action; the current source has await decision.",
+                    "record_id": "northstar-demo",
+                    "to": "schedule a technical review on Thursday"
+                  }
+                ],
+                "findings": [],
+                "source_digest": "sha256:5adbce7c9bd9e95d2c16e0e4ca4a30cd9d05623b320cf3c49c4111dfba0bc984",
+                "source_event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:1",
+                "takeaways": [
+                  "Northstar agreed to a Thursday technical review.",
+                  "The discovery stage remains unchanged."
+                ]
+              }
+            }
+          },
+          "prepare": {
+            "crm_source": {
+              "data": {
+                "digest": "sha256:5adbce7c9bd9e95d2c16e0e4ca4a30cd9d05623b320cf3c49c4111dfba0bc984",
+                "event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:1",
+                "findings": [],
+                "ready": true,
+                "records": [
+                  {
+                    "fields": {
+                      "next_action": "await decision",
+                      "stage": "discovery"
+                    },
+                    "id": "northstar-demo"
+                  }
+                ],
+                "version": 1
+              }
+            }
+          },
+          "read-source": {
+            "data_operation_result": {
+              "data": {
+                "after_version": 1,
+                "aggregate_id": "demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                "before_version": 1,
+                "data_source_ref": "local://crm/dogfood",
+                "event_digest": null,
+                "event_ref": null,
+                "events": [
+                  {
+                    "committed_at": "2026-09-14T22:06:59.308Z",
+                    "event": {
+                      "records": [
+                        {
+                          "fields": {
+                            "next_action": "await decision",
+                            "stage": "discovery"
+                          },
+                          "id": "northstar-demo"
+                        }
+                      ],
+                      "type": "crm.snapshot"
+                    },
+                    "event_digest": "sha256:5adbce7c9bd9e95d2c16e0e4ca4a30cd9d05623b320cf3c49c4111dfba0bc984",
+                    "event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:1",
+                    "event_type": "crm.snapshot",
+                    "idempotency_key": "seed",
+                    "version": 1
+                  }
+                ],
+                "has_more": false,
+                "idempotency_key": null,
+                "limit": 1,
+                "next_after_version": 1,
+                "operation": "read_events",
+                "projection": null,
+                "projection_digest": "sha256:41c83ec9d8eac9de13f87b8a9655b42fdfee19849e22cd3634681654ef3d2faa",
+                "provider": "sqlite-event-store",
+                "provider_evidence": {
+                  "adapter": "data.sqlite",
+                  "aggregate_id": "demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                  "data_source_ref_digest": "sha256:e7ece5d14b82bfb7c0e698c8e7841b48cd19eca33ff7c236d262ffbc3ce2d75f",
+                  "provider": "sqlite-event-store",
+                  "resource": "crm_records",
+                  "storage_class": "sqlite"
+                },
+                "redactions": [],
+                "resource": "crm_records",
+                "result_digest": "sha256:55230cc9f1076c01b88781aa70c8eae6df9ad4f3202b492034d72172fe478541",
+                "rows": [
+                  {
+                    "committed_at": "2026-09-14T22:06:59.308Z",
+                    "event": {
+                      "records": [
+                        {
+                          "fields": {
+                            "next_action": "await decision",
+                            "stage": "discovery"
+                          },
+                          "id": "northstar-demo"
+                        }
+                      ],
+                      "type": "crm.snapshot"
+                    },
+                    "event_digest": "sha256:5adbce7c9bd9e95d2c16e0e4ca4a30cd9d05623b320cf3c49c4111dfba0bc984",
+                    "event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:1",
+                    "event_type": "crm.snapshot",
+                    "idempotency_key": "seed",
+                    "version": 1
+                  }
+                ],
+                "schema": "runx.data.operation_result.v1",
+                "status": "read",
+                "stop_conditions": []
+              }
+            }
+          },
+          "readback": {
+            "data_operation_result": {
+              "data": {
+                "after_version": 2,
+                "aggregate_id": "demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                "before_version": 2,
+                "data_source_ref": "local://crm/dogfood",
+                "event_digest": null,
+                "event_ref": null,
+                "events": [
+                  {
+                    "committed_at": "2026-09-14T22:07:00.315Z",
+                    "event": {
+                      "cleanup": {
+                        "field_updates": [
+                          {
+                            "ambiguous": false,
+                            "confidence": 0.99,
+                            "evidence_quote": "schedule a technical review on Thursday",
+                            "field": "next_action",
+                            "from": "await decision",
+                            "rationale": "The transcript names the account and explicitly states this next action; the current source has await decision.",
+                            "record_id": "northstar-demo",
+                            "to": "schedule a technical review on Thursday"
+                          }
+                        ],
+                        "operation_key": "call-demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                        "source_event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:1",
+                        "transcript_digest": "sha256:fd6cd30cb07d2f85225825825e97032109270cf5ab5c1c1e5d26db7f8f48a2a0"
+                      },
+                      "records": [
+                        {
+                          "fields": {
+                            "next_action": "schedule a technical review on Thursday",
+                            "stage": "discovery"
+                          },
+                          "id": "northstar-demo"
+                        }
+                      ],
+                      "type": "crm.snapshot"
+                    },
+                    "event_digest": "sha256:36c718f322813be3e3f8d51d627447e9e744776cc0b416b0dada9890365d5dff",
+                    "event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:2",
+                    "event_type": "crm.snapshot",
+                    "idempotency_key": "call-demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                    "version": 2
+                  }
+                ],
+                "has_more": false,
+                "idempotency_key": null,
+                "limit": 1,
+                "next_after_version": 2,
+                "operation": "read_events",
+                "projection": null,
+                "projection_digest": "sha256:76f6850ac4d8aec79679e112293f12cf083a08af15a014ae3bb35fde0f304dd2",
+                "provider": "sqlite-event-store",
+                "provider_evidence": {
+                  "adapter": "data.sqlite",
+                  "aggregate_id": "demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                  "data_source_ref_digest": "sha256:e7ece5d14b82bfb7c0e698c8e7841b48cd19eca33ff7c236d262ffbc3ce2d75f",
+                  "provider": "sqlite-event-store",
+                  "resource": "crm_records",
+                  "storage_class": "sqlite"
+                },
+                "redactions": [],
+                "resource": "crm_records",
+                "result_digest": "sha256:faa056883dff5289f845b7c3b43c13d9425a131776e02e843a21201f5e07b248",
+                "rows": [
+                  {
+                    "committed_at": "2026-09-14T22:07:00.315Z",
+                    "event": {
+                      "cleanup": {
+                        "field_updates": [
+                          {
+                            "ambiguous": false,
+                            "confidence": 0.99,
+                            "evidence_quote": "schedule a technical review on Thursday",
+                            "field": "next_action",
+                            "from": "await decision",
+                            "rationale": "The transcript names the account and explicitly states this next action; the current source has await decision.",
+                            "record_id": "northstar-demo",
+                            "to": "schedule a technical review on Thursday"
+                          }
+                        ],
+                        "operation_key": "call-demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                        "source_event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:1",
+                        "transcript_digest": "sha256:fd6cd30cb07d2f85225825825e97032109270cf5ab5c1c1e5d26db7f8f48a2a0"
+                      },
+                      "records": [
+                        {
+                          "fields": {
+                            "next_action": "schedule a technical review on Thursday",
+                            "stage": "discovery"
+                          },
+                          "id": "northstar-demo"
+                        }
+                      ],
+                      "type": "crm.snapshot"
+                    },
+                    "event_digest": "sha256:36c718f322813be3e3f8d51d627447e9e744776cc0b416b0dada9890365d5dff",
+                    "event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:2",
+                    "event_type": "crm.snapshot",
+                    "idempotency_key": "call-demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                    "version": 2
+                  }
+                ],
+                "schema": "runx.data.operation_result.v1",
+                "status": "read",
+                "stop_conditions": []
+              }
+            }
+          },
+          "reconcile": {
+            "update_draft": {
+              "data": {
+                "takeaways": [
+                  "Northstar agreed to a Thursday technical review.",
+                  "The discovery stage remains unchanged."
+                ],
+                "uncertainties": [],
+                "updates": [
+                  {
+                    "ambiguous": false,
+                    "confidence": 0.99,
+                    "evidence_quote": "schedule a technical review on Thursday",
+                    "field": "next_action",
+                    "rationale": "The transcript names the account and explicitly states this next action; the current source has await decision.",
+                    "record_id": "northstar-demo",
+                    "to": "schedule a technical review on Thursday"
+                  }
+                ]
+              }
+            }
+          },
+          "write": {
+            "data_operation_result": {
+              "data": {
+                "after_version": 2,
+                "aggregate_id": "demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                "before_version": 1,
+                "data_source_ref": "local://crm/dogfood",
+                "event_digest": "sha256:36c718f322813be3e3f8d51d627447e9e744776cc0b416b0dada9890365d5dff",
+                "event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:2",
+                "events": [],
+                "idempotency_key": "call-demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                "operation": "append_event",
+                "projection": null,
+                "projection_digest": "sha256:76f6850ac4d8aec79679e112293f12cf083a08af15a014ae3bb35fde0f304dd2",
+                "provider": "sqlite-event-store",
+                "provider_evidence": {
+                  "adapter": "data.sqlite",
+                  "aggregate_id": "demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                  "data_source_ref_digest": "sha256:e7ece5d14b82bfb7c0e698c8e7841b48cd19eca33ff7c236d262ffbc3ce2d75f",
+                  "provider": "sqlite-event-store",
+                  "resource": "crm_records",
+                  "storage_class": "sqlite"
+                },
+                "redactions": [],
+                "resource": "crm_records",
+                "result_digest": "sha256:d7d4f315448ac39ad60e569b1270db0ac4775f5438e5bc187e8de1cfc36d9f67",
+                "rows": [],
+                "schema": "runx.data.operation_result.v1",
+                "status": "committed",
+                "stop_conditions": []
+              }
+            }
+          }
+        }
+      },
+      "outcome": "completed",
+      "receipt_id": "sha256:325e4b2c53cf8a3384b2051ec2ea5921eec7e36a9029e2b7af0f4258ca053eb1",
+      "result": {
+        "crm_cleanup_result": {
+          "data": {
+            "field_updates": [
+              {
+                "ambiguous": false,
+                "confidence": 0.99,
+                "evidence_quote": "schedule a technical review on Thursday",
+                "field": "next_action",
+                "from": "await decision",
+                "rationale": "The transcript names the account and explicitly states this next action; the current source has await decision.",
+                "record_id": "northstar-demo",
+                "to": "schedule a technical review on Thursday"
+              }
+            ],
+            "findings": [],
+            "source": {
+              "aggregate_id": "demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+              "data_source_ref": "local://crm/dogfood",
+              "digest": "sha256:5adbce7c9bd9e95d2c16e0e4ca4a30cd9d05623b320cf3c49c4111dfba0bc984",
+              "event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:1",
+              "resource": "crm_records",
+              "version": 1
+            },
+            "status": "verified",
+            "takeaways": [
+              "Northstar agreed to a Thursday technical review.",
+              "The discovery stage remains unchanged."
+            ],
+            "transcript_digest": "sha256:fd6cd30cb07d2f85225825825e97032109270cf5ab5c1c1e5d26db7f8f48a2a0",
+            "write_result": {
+              "after": [
+                {
+                  "fields": {
+                    "next_action": "schedule a technical review on Thursday",
+                    "stage": "discovery"
+                  },
+                  "id": "northstar-demo"
+                }
+              ],
+              "after_version": 2,
+              "attempted": true,
+              "before": [
+                {
+                  "fields": {
+                    "next_action": "await decision",
+                    "stage": "discovery"
+                  },
+                  "id": "northstar-demo"
+                }
+              ],
+              "before_version": 1,
+              "event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:2",
+              "status": "committed",
+              "verified": true,
+              "write_performed": true
+            }
+          }
+        }
+      },
+      "run_id": "run_reconcile_b9e05fa46d22e728",
+      "runner": "reconcile",
+      "schema": "runx.skill_run.v1",
+      "skill_name": "crm-cleanup",
+      "status": "sealed",
+      "trace": {
+        "graph": "crm-cleanup-reconcile",
+        "status": "succeeded",
+        "steps": [
+          {
+            "receipt_id": "sha256:4d895f738541d8a698ba2eb17012df2d098a65a5b12fd9f3ba46532d0c3e4a07",
+            "skill": "tool:data.read_events",
+            "status": "success",
+            "step_id": "read-source"
+          },
+          {
+            "receipt_id": "sha256:35b3a2e19e3937a8a8511594418192b37786a62090b0fe51205e863285eb7c6b",
+            "skill": "tool:data.digest",
+            "status": "success",
+            "step_id": "digest-transcript"
+          },
+          {
+            "receipt_id": "sha256:31ff8c585eea5c6634ab5defdf6d01cabe09dc03bb99589dc112d77c2767b4c6",
+            "skill": "prepare",
+            "status": "success",
+            "step_id": "prepare"
+          },
+          {
+            "receipt_id": "sha256:f2cb1b0855e3128e3eb72f13eaaeefa34b053932a0545305b10b31500181ad1e",
+            "skill": "run:agent-task",
+            "status": "success",
+            "step_id": "reconcile"
+          },
+          {
+            "receipt_id": "sha256:bf2d96753bd17362c2425b9207888c30863855e0223a867a6ac7a67a61303479",
+            "skill": "plan",
+            "status": "success",
+            "step_id": "plan"
+          },
+          {
+            "receipt_id": "sha256:0fa7360b3d9e6c71f1c7f634c86c4ee02d8b778e773892dab122afff1bba604e",
+            "skill": "tool:data.append_event",
+            "status": "success",
+            "step_id": "write"
+          },
+          {
+            "receipt_id": "sha256:ccf31d29ecd95a14f222b892b733b2b3cc2b8ddeb50e950af9167e563f29ec5c",
+            "skill": "tool:data.read_events",
+            "status": "success",
+            "step_id": "readback"
+          },
+          {
+            "receipt_id": "sha256:17d8b7adec261f9a790093dd1582bf43f76b9151440b18175016403fcf0c5d01",
+            "skill": "finalize-written",
+            "status": "success",
+            "step_id": "finalize-written"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "label": "no-op-start",
+    "command": [
+      "runx",
+      "skill",
+      "kkebi50-svg/crm-cleanup@0.2.0",
+      "--registry",
+      "https://api.runx.ai",
+      "--inputs",
+      "input.json",
+      "--receipts",
+      "/home/runner/work/_temp/crm-clean-install/receipts",
+      "--diagnostics",
+      "--json"
+    ],
+    "exit_code": 2,
+    "value": {
+      "outcome": "deferred",
+      "registry_provenance": {
+        "digest": "sha256:9bc7edb3d14a21e4442e42d1d10233c3e5571b26a1014ee388b9cddd0527a8e5",
+        "profile_digest": "sha256:c3522c3ae64a4b4904a417256639056144ad93311215f6b634873a4f110e5094",
+        "registry_key_id": "runx-registry-ed25519-v1",
+        "registry_source": "remote https://api.runx.ai",
+        "registry_source_fingerprint": "ba1ac16b631195fd",
+        "skill_id": "kkebi50-svg/crm-cleanup",
+        "trust_state": "trusted",
+        "trust_tier": "community",
+        "version": "0.2.0"
+      },
+      "requests": [
+        {
+          "id": "agent_task.crm-cleanup-reconcile.output",
+          "invocation": {
+            "agent": "reviewer",
+            "envelope": {
+              "allowed_tools": [],
+              "current_context": [],
+              "execution_location": {
+                "skill_directory": "/home/runner/.runx/registry-skills/ba1ac16b631195fd/kkebi50-svg/crm-cleanup/0.2.0/3b309cddedf9c48b/kkebi50-svg/crm-cleanup/0.2.0"
+              },
+              "historical_context": [],
+              "inputs": {
+                "aggregate_id": "demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                "crm_records": [
+                  {
+                    "fields": {
+                      "next_action": "schedule a technical review on Thursday",
+                      "stage": "discovery"
+                    },
+                    "id": "northstar-demo"
+                  }
+                ],
+                "crm_schema": {
+                  "allowed_fields": [
+                    "next_action",
+                    "stage"
+                  ],
+                  "minimum_confidence": 0.95
+                },
+                "data_source_ref": "local://crm/dogfood",
+                "operation_key": "call-demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                "resource": "crm_records",
+                "source_ready": true,
+                "transcript": "Northstar demo account: the next action is schedule a technical review on Thursday. Keep the stage at discovery until that review."
+              },
+              "instructions": "---\nname: crm-cleanup\ndescription: Read current CRM records from an operator-selected source, reconcile a call transcript into grounded allowlisted field updates, execute the changes once, and verify independent readback. Return uncertainty or no-op without writing.\nregistry_owner: kkebi50-svg\n---\n\n# CRM Cleanup\n\nUse CRM Cleanup after a call when the CRM should reflect a customer's explicit\nstatements and agreed next actions. It reads the current record set at execution\ntime, interprets the transcript, applies the supported changes through the\noperator's selected data transport, and checks the resulting records independently.\nIt does not find new prospects or assign leads; those jobs belong to lead-enrichment\nand lead-router. A transcript alone is not current CRM state, and a quoted sentence\nalone does not prove that a proposed value follows from it.\n\n## Source and authority\n\nSelect `data_source_ref`, `resource`, and `aggregate_id` for the exact record set.\nThe current stream head must be a complete `crm.snapshot` event with `records`:\neach record has a unique stable `id` and a `fields` object of scalar CRM values.\nThis event-sourced CRM contract makes each committed state independently readable.\nThe source must already exist; the skill never seeds or fabricates a production\nsource. Missing, malformed, duplicate-identity, or oversized snapshots stop the run.\n\nThe canonical data-store capabilities own source bindings, scoped reads, appends,\nversion checks, idempotency, and their receipts. The operator chooses the adapter\noutside this skill. Native SQLite behind an unbound `local://` source is useful as\nan explicitly synthetic mock CRM. It is real durable transport execution, but it\nis not evidence of a live Salesforce, HubSpot, or customer CRM update. To use another\nCRM, bind a conforming adapter that exposes this snapshot contract and independently\nreads its authoritative state; do not describe an unconnected event log as that CRM.\n\n`runx:data:read` admits the source reads and `runx:data:append` admits the exact\nmutation. `crm_schema.allowed_fields` further limits CRM field authority. It cannot\ngrant storage access. Set `minimum_confidence` between 0.9 and 1, provide the complete\ntranscript (at most 16,000 characters), and supply a stable `operation_key`. Never\nuse this workflow to infer permission from a customer sentence or to process private\ndata without the operator's authorization.\n\nFor a synthetic trial, initialize the source separately with data-store's\n`append_event` operation: expected version 0, a unique seed idempotency key, and an\nevent such as `{\"type\":\"crm.snapshot\",\"records\":[{\"id\":\"acct-globex\",\"fields\":{\"next_action\":\"none\"}}]}`.\nThen use the copy-valid invocation exposed by `runx skill inspect`. Harness setup\nis isolated and synthetic; a separate dogfood run must read a persisted runtime\nsource rather than paste the fixture as current CRM evidence.\n\n## Procedure and judgment\n\nThe default `reconcile` runner first reads the latest bounded source event and\nbinds the transcript through native digest evidence. The interpreting agent extracts\ntakeaways and candidate updates. Each candidate names the exact record and field,\ntarget value, verbatim quote, confidence, rationale, and any ambiguity. Record\nidentity must be established by the transcript and the supplied records. Do not\nmatch an unnamed person or company by guesswork.\n\nDeterministic CRM policy rejects unknown records, forbidden fields, duplicate field\ntargets, absent quotes, empty values, and low confidence or ambiguous interpretations.\nAny unresolved candidate prevents the entire mutation, preserving all findings for\nreview. A value already present is a no-op. The module checks relationships specific\nto CRM policy; it does not access storage, make network calls, handle credentials,\ncompute receipt hashes, or substitute for the native runtime.\n\nIf every proposed change is admissible, the runner appends one complete snapshot\nusing the exact version it observed, then performs a separate source read. The\nversion, event identity, event digest and complete record set must match the native\nwrite result and planned state before the result says `verified`. The native\ntransport owns concurrency and idempotency. A successful agent answer or a sealed\nproposal is never proof that the write occurred.\n\n## Results and recovery\n\n`crm_cleanup_result` contains `takeaways`, `field_updates`, named `findings`, original\nsource identity and version, transcript digest, and `write_result` with before/after\nrecords. Each field update preserves its prior value and transcript evidence.\n\n- `verified`: the transport confirmed the event and independent readback matched.\n- `no_action`: the records already match or no change was supported; no append ran.\n- `needs_review`: uncertainty or invalid candidate evidence prevented all updates.\n- `refused`: the required current CRM snapshot was not usable.\n- `conflict`: the native transport rejected a stale version or inconsistent retry.\n- `unverified`: the effect or its independent readback could not be confirmed.\n\n`write_performed` describes a newly committed event in this invocation; an\n`idempotent_replay` can be verified without another write. `after: null` means the\npost-operation state is unknown. Never present the planned state as observed state.\nA native transport or worker failure can terminate execution before a final result;\ninspect the runtime's failure receipt and retain uncertainty about any earlier effect.\n\nFor a conflict, read the current source and reconcile again rather than forcing a\nstale snapshot. After a lost response, inspect the source and retry the exact operation\nidentity; never invent a new key merely to make the write succeed. Resolve review\nfindings with additional evidence before another attempt. Large archives belong\nupstream: this operation handles at most 50 current records, 50 fields per record,\nand 50 candidate updates, not unbounded history.\n\nWhen called downstream of call processing, reuse its transcript and field schema\nwithout repeating transcription. Preserve the source identity, takeaways, evidence,\nfindings and actual effect status for the next operator. Publication is separate:\nthe canonical registry CLI publishes the exact validated package, and a clean install,\nhosted harness, and separate source-read/write/readback run establish distribution\nand execution evidence. A local fixture success is only harness evidence.\n\n## Agent task contracts\n\n### `crm-cleanup-reconcile`\n\nRead `transcript`, `crm_records`, and `crm_schema`. Return the typed `update_draft`\nwith `takeaways`, `uncertainties`, and `updates`. Every update has `record_id`, `field`,\n`to`, `evidence_quote`, `rationale`, `confidence`, and `ambiguous`.\n\nIf `source_ready` is false, return no updates and state that source records are\nunavailable. Deterministic policy will refuse the run; do not fabricate a replacement.\n\nPropose only changes actually supported by the transcript, bound to one current\nrecord and an allowed field. Copy evidence verbatim. Explain why the quote entails\nthe value and identifies the record; do not turn vague sentiment into a definite\nstatus or score. Report conflicts and missing identity as uncertainties. An empty\nupdate array is correct when the call changes nothing. Never invent records, quotes,\nvalues, approval, transport execution, or readback evidence.",
+              "instructions_sha256": "sha256:9bc7edb3d14a21e4442e42d1d10233c3e5571b26a1014ee388b9cddd0527a8e5",
+              "output": {
+                "update_draft": {
+                  "schema": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "takeaways": {
+                        "items": {
+                          "maxLength": 2000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "maxItems": 50,
+                        "type": "array"
+                      },
+                      "uncertainties": {
+                        "items": {
+                          "maxLength": 2000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "maxItems": 50,
+                        "type": "array"
+                      },
+                      "updates": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "ambiguous": {
+                              "type": "boolean"
+                            },
+                            "confidence": {
+                              "maximum": 1,
+                              "minimum": 0,
+                              "type": "number"
+                            },
+                            "evidence_quote": {
+                              "maxLength": 4000,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "field": {
+                              "maxLength": 200,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "rationale": {
+                              "maxLength": 2000,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "record_id": {
+                              "maxLength": 200,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "to": {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "record_id",
+                            "field",
+                            "to",
+                            "evidence_quote",
+                            "rationale",
+                            "confidence",
+                            "ambiguous"
+                          ],
+                          "type": "object"
+                        },
+                        "maxItems": 50,
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "takeaways",
+                      "uncertainties",
+                      "updates"
+                    ]
+                  },
+                  "type": "object"
+                }
+              },
+              "output_schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "update_draft": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "takeaways": {
+                        "items": {
+                          "maxLength": 2000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "maxItems": 50,
+                        "type": "array"
+                      },
+                      "uncertainties": {
+                        "items": {
+                          "maxLength": 2000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "maxItems": 50,
+                        "type": "array"
+                      },
+                      "updates": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "ambiguous": {
+                              "type": "boolean"
+                            },
+                            "confidence": {
+                              "maximum": 1,
+                              "minimum": 0,
+                              "type": "number"
+                            },
+                            "evidence_quote": {
+                              "maxLength": 4000,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "field": {
+                              "maxLength": 200,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "rationale": {
+                              "maxLength": 2000,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "record_id": {
+                              "maxLength": 200,
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "to": {
+                              "type": [
+                                "string",
+                                "number",
+                                "boolean",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "record_id",
+                            "field",
+                            "to",
+                            "evidence_quote",
+                            "rationale",
+                            "confidence",
+                            "ambiguous"
+                          ],
+                          "type": "object"
+                        },
+                        "maxItems": 50,
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "takeaways",
+                      "uncertainties",
+                      "updates"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "update_draft"
+                ],
+                "type": "object"
+              },
+              "provenance": [
+                {
+                  "from_step": "prepare",
+                  "input": "crm_records",
+                  "output": "crm_source.data.records",
+                  "receipt_id": "sha256:0ca7643b31be0dd8c65fecd2091fef602a990c235c67b339857e35ec36a1b7ee"
+                },
+                {
+                  "from_step": "prepare",
+                  "input": "source_ready",
+                  "output": "crm_source.data.ready",
+                  "receipt_id": "sha256:0ca7643b31be0dd8c65fecd2091fef602a990c235c67b339857e35ec36a1b7ee"
+                }
+              ],
+              "requirements": {
+                "declaration": {},
+                "execution_boundary": {
+                  "kind": "remote_provider"
+                }
+              },
+              "run_id": "run_reconcile_b9e05fa46d22e728",
+              "skill": "reconcile",
+              "step_id": "reconcile",
+              "trust_boundary": "runtime-governed: caller-mediated resolution is the default; an in-process model loop runs only with explicit per-run managed-agent consent, and every resolution is receipt-bound",
+              "voice_profile": {
+                "content": "# runx Voice Grammar\n\nVoice rules are lexical and grammatical. Grammar is the one that matters.\nModels pass word filters easily. Structural patterns are what give AI writing\naway, and they are what this contract targets.\n\nThis file is prompt contract, not only review policy. Skill instructions\nreference it so the agent generates better work before any downstream gate\nruns. Runx ships this canonical profile in the native runtime, injects the full\ndocument into agent contexts as `voice_profile`, and pins its hash in signed\nreceipt criteria. An explicit `RUNX_VOICE_PROFILE_PATH` or a workspace profile\ncan replace the bundled default for a governed run.\n\nThis default applies across users and projects. Project-specific voice belongs\nin an explicit workspace profile.\n\n## Lexical Anti-Patterns\n\nBanned openers:\n\n- \"let's dive in\", \"in this article\", \"in this post\", \"in this guide\"\n- \"it's worth noting\", \"it is worth noting\"\n- \"as we all know\", \"as you know\"\n\nBanned words when used as self-congratulation or filler:\n\n- leverage, synergy, innovative, cutting-edge, passionate, seamless, robust,\n  powerful, comprehensive, holistic, game-changing, revolutionary\n- \"simply\", \"easily\", \"just\" as adverb softeners (\"simply run\", \"just\n  install\")\n\nBanned closings:\n\n- trailing summaries of what was just said\n- \"hope this helps\", \"happy coding\", \"stay tuned\"\n- \"in summary\", \"to summarize\", \"in conclusion\"\n\n## Grammatical Anti-Patterns\n\nThese are the rules that separate this contract from a word filter. Word\nfilters fail under pressure; structural rules are the ones the agent has to\ninternalise.\n\n- Em dashes. Use comma, semicolon, or period. One em dash per long piece is\n  tolerated; systematic use is banned.\n- Triple anaphora. Three consecutive sentences, bullets, or clauses starting\n  with the same word or phrase (\"no X, no Y, no Z\", \"keep X, keep Y, keep\n  Z\"). Allowed once per document; never as default emphasis.\n- Paired-parallel punchlines. Two sentences at paragraph close with matching\n  grammatical skeletons (\"X does A. Y does B.\"), when the parallelism carries\n  rhythm rather than meaning. Cut or reshape.\n- Stacked rhetorical Q&A. Two or more back-to-back \"Why X? Because Y.\"\n  structures. Rewrite as assertion.\n- Meta-commentary. \"This isn't about X, it's about Y\", \"what this really\n  means\", \"the narrow honest claim\", \"this page is not about\".\n- Performative honesty openers. \"Honestly:\", \"Frankly:\", \"The truth is\",\n  \"Let me be direct:\".\n- Mic-drop cadence as default closer. Short declarative one-liner ending\n  every paragraph. Occasional yes, systematic no.\n- Footer blocks on short pieces. \"Sources:\", \"Key takeaways:\", \"TL;DR\", \"In\n  summary:\".\n\n## Structural Rules\n\n- Open with a concrete image, fact, or provocation. Never a preamble.\n- Sections start with the point, not a transition.\n- Vary sentence length within a paragraph. Do not set a rhythm and ride it.\n- Mix register. High (historical parallel, philosophical framing) and low\n  (blunt, concrete) in the same paragraph is fine.\n- Metaphors as framing devices that carry the piece, not decoration. One\n  sustained metaphor beats three throwaway ones.\n- Semicolons over dashes for introducing elaboration.\n\n## Calibration Test\n\nBefore declaring a draft ready, read the last two sentences of each paragraph\naloud. If consecutive paragraphs share a grammatical skeleton, one of them is\nserving rhythm instead of meaning. Cut or reshape.\n\nThe same test applied at piece level: if you can delete every paragraph's\nlast sentence and the piece still holds, those sentences were rhythm.\n\n## Technical Writing\n\nSame voice applied to engineering. No register drop into tutorial-speak.\n\n- Show the code, explain the why, skip the obvious.\n- No \"bam, problem solved!\", no \"let's take a quick look at\", no \"and voilà\".\n- Code comments follow the code convention, not this voice contract.\n- Error messages and CLI output stay terse and factual; they are interface,\n  not prose.\n\n## Stop Conditions\n\nWhen the voice contract cannot be met honestly, stop rather than soften:\n\n- `voice_mismatch`: the artifact would require generic AI framing, filler\n  structure, or register drop to meet the surface's expectation. Return the\n  draft with the mismatch named.\n- `evidence_too_thin_for_voice`: the voice contract requires claim-weight\n  that the evidence cannot support. Return `needs_more_evidence`.\n",
+                "path": "VOICE.md",
+                "root_path": "runx://profiles",
+                "sha256": "sha256:b890ab7e9d39860174a0f1b6f99e4ff3d9aa4187824aace3a21811b8317a5920"
+              }
+            },
+            "id": "agent_task.crm-cleanup-reconcile.output",
+            "source_type": "agent-task",
+            "task": "crm-cleanup-reconcile"
+          },
+          "kind": "agent_act"
+        }
+      ],
+      "run_id": "run_reconcile_b9e05fa46d22e728",
+      "runner": "reconcile",
+      "schema": "runx.skill_run.v1",
+      "skill_name": "crm-cleanup",
+      "status": "needs_agent"
+    }
+  },
+  {
+    "label": "no-op",
+    "command": [
+      "runx",
+      "resume",
+      "run_reconcile_b9e05fa46d22e728",
+      "answer.json",
+      "--receipts",
+      "/home/runner/work/_temp/crm-clean-install/receipts",
+      "--diagnostics",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "closure": {
+        "closed_at": "2026-09-14T22:07:00.990Z",
+        "disposition": "closed",
+        "reason_code": "graph_closed",
+        "summary": "graph crm-cleanup-reconcile completed"
+      },
+      "context": {
+        "step_outputs": {
+          "digest-transcript": {
+            "digest_result": {
+              "data": {
+                "algorithm": "sha256",
+                "digest": "sha256:fd6cd30cb07d2f85225825825e97032109270cf5ab5c1c1e5d26db7f8f48a2a0"
+              }
+            }
+          },
+          "finalize-unchanged": {
+            "crm_cleanup_result": {
+              "data": {
+                "field_updates": [],
+                "findings": [],
+                "source": {
+                  "aggregate_id": "demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                  "data_source_ref": "local://crm/dogfood",
+                  "digest": "sha256:36c718f322813be3e3f8d51d627447e9e744776cc0b416b0dada9890365d5dff",
+                  "event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:2",
+                  "resource": "crm_records",
+                  "version": 2
+                },
+                "status": "no_action",
+                "takeaways": [
+                  "Northstar agreed to a Thursday technical review.",
+                  "The discovery stage remains unchanged."
+                ],
+                "transcript_digest": "sha256:fd6cd30cb07d2f85225825825e97032109270cf5ab5c1c1e5d26db7f8f48a2a0",
+                "write_result": {
+                  "after": [
+                    {
+                      "fields": {
+                        "next_action": "schedule a technical review on Thursday",
+                        "stage": "discovery"
+                      },
+                      "id": "northstar-demo"
+                    }
+                  ],
+                  "after_version": 2,
+                  "attempted": false,
+                  "before": [
+                    {
+                      "fields": {
+                        "next_action": "schedule a technical review on Thursday",
+                        "stage": "discovery"
+                      },
+                      "id": "northstar-demo"
+                    }
+                  ],
+                  "before_version": 2,
+                  "event_ref": null,
+                  "status": "not_attempted",
+                  "verified": false,
+                  "write_performed": false
+                }
+              }
+            }
+          },
+          "plan": {
+            "crm_plan": {
+              "data": {
+                "after": [
+                  {
+                    "fields": {
+                      "next_action": "schedule a technical review on Thursday",
+                      "stage": "discovery"
+                    },
+                    "id": "northstar-demo"
+                  }
+                ],
+                "before": [
+                  {
+                    "fields": {
+                      "next_action": "schedule a technical review on Thursday",
+                      "stage": "discovery"
+                    },
+                    "id": "northstar-demo"
+                  }
+                ],
+                "decision": "no_action",
+                "event": {
+                  "cleanup": {
+                    "field_updates": [],
+                    "operation_key": "call-demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                    "source_event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:2",
+                    "transcript_digest": "sha256:fd6cd30cb07d2f85225825825e97032109270cf5ab5c1c1e5d26db7f8f48a2a0"
+                  },
+                  "records": [
+                    {
+                      "fields": {
+                        "next_action": "schedule a technical review on Thursday",
+                        "stage": "discovery"
+                      },
+                      "id": "northstar-demo"
+                    }
+                  ],
+                  "type": "crm.snapshot"
+                },
+                "expected_version": 2,
+                "field_updates": [],
+                "findings": [],
+                "source_digest": "sha256:36c718f322813be3e3f8d51d627447e9e744776cc0b416b0dada9890365d5dff",
+                "source_event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:2",
+                "takeaways": [
+                  "Northstar agreed to a Thursday technical review.",
+                  "The discovery stage remains unchanged."
+                ]
+              }
+            }
+          },
+          "prepare": {
+            "crm_source": {
+              "data": {
+                "digest": "sha256:36c718f322813be3e3f8d51d627447e9e744776cc0b416b0dada9890365d5dff",
+                "event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:2",
+                "findings": [],
+                "ready": true,
+                "records": [
+                  {
+                    "fields": {
+                      "next_action": "schedule a technical review on Thursday",
+                      "stage": "discovery"
+                    },
+                    "id": "northstar-demo"
+                  }
+                ],
+                "version": 2
+              }
+            }
+          },
+          "read-source": {
+            "data_operation_result": {
+              "data": {
+                "after_version": 2,
+                "aggregate_id": "demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                "before_version": 2,
+                "data_source_ref": "local://crm/dogfood",
+                "event_digest": null,
+                "event_ref": null,
+                "events": [
+                  {
+                    "committed_at": "2026-09-14T22:07:00.315Z",
+                    "event": {
+                      "cleanup": {
+                        "field_updates": [
+                          {
+                            "ambiguous": false,
+                            "confidence": 0.99,
+                            "evidence_quote": "schedule a technical review on Thursday",
+                            "field": "next_action",
+                            "from": "await decision",
+                            "rationale": "The transcript names the account and explicitly states this next action; the current source has await decision.",
+                            "record_id": "northstar-demo",
+                            "to": "schedule a technical review on Thursday"
+                          }
+                        ],
+                        "operation_key": "call-demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                        "source_event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:1",
+                        "transcript_digest": "sha256:fd6cd30cb07d2f85225825825e97032109270cf5ab5c1c1e5d26db7f8f48a2a0"
+                      },
+                      "records": [
+                        {
+                          "fields": {
+                            "next_action": "schedule a technical review on Thursday",
+                            "stage": "discovery"
+                          },
+                          "id": "northstar-demo"
+                        }
+                      ],
+                      "type": "crm.snapshot"
+                    },
+                    "event_digest": "sha256:36c718f322813be3e3f8d51d627447e9e744776cc0b416b0dada9890365d5dff",
+                    "event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:2",
+                    "event_type": "crm.snapshot",
+                    "idempotency_key": "call-demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                    "version": 2
+                  }
+                ],
+                "has_more": false,
+                "idempotency_key": null,
+                "limit": 1,
+                "next_after_version": 2,
+                "operation": "read_events",
+                "projection": null,
+                "projection_digest": "sha256:76f6850ac4d8aec79679e112293f12cf083a08af15a014ae3bb35fde0f304dd2",
+                "provider": "sqlite-event-store",
+                "provider_evidence": {
+                  "adapter": "data.sqlite",
+                  "aggregate_id": "demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                  "data_source_ref_digest": "sha256:e7ece5d14b82bfb7c0e698c8e7841b48cd19eca33ff7c236d262ffbc3ce2d75f",
+                  "provider": "sqlite-event-store",
+                  "resource": "crm_records",
+                  "storage_class": "sqlite"
+                },
+                "redactions": [],
+                "resource": "crm_records",
+                "result_digest": "sha256:faa056883dff5289f845b7c3b43c13d9425a131776e02e843a21201f5e07b248",
+                "rows": [
+                  {
+                    "committed_at": "2026-09-14T22:07:00.315Z",
+                    "event": {
+                      "cleanup": {
+                        "field_updates": [
+                          {
+                            "ambiguous": false,
+                            "confidence": 0.99,
+                            "evidence_quote": "schedule a technical review on Thursday",
+                            "field": "next_action",
+                            "from": "await decision",
+                            "rationale": "The transcript names the account and explicitly states this next action; the current source has await decision.",
+                            "record_id": "northstar-demo",
+                            "to": "schedule a technical review on Thursday"
+                          }
+                        ],
+                        "operation_key": "call-demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                        "source_event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:1",
+                        "transcript_digest": "sha256:fd6cd30cb07d2f85225825825e97032109270cf5ab5c1c1e5d26db7f8f48a2a0"
+                      },
+                      "records": [
+                        {
+                          "fields": {
+                            "next_action": "schedule a technical review on Thursday",
+                            "stage": "discovery"
+                          },
+                          "id": "northstar-demo"
+                        }
+                      ],
+                      "type": "crm.snapshot"
+                    },
+                    "event_digest": "sha256:36c718f322813be3e3f8d51d627447e9e744776cc0b416b0dada9890365d5dff",
+                    "event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:2",
+                    "event_type": "crm.snapshot",
+                    "idempotency_key": "call-demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                    "version": 2
+                  }
+                ],
+                "schema": "runx.data.operation_result.v1",
+                "status": "read",
+                "stop_conditions": []
+              }
+            }
+          },
+          "reconcile": {
+            "update_draft": {
+              "data": {
+                "takeaways": [
+                  "Northstar agreed to a Thursday technical review.",
+                  "The discovery stage remains unchanged."
+                ],
+                "uncertainties": [],
+                "updates": [
+                  {
+                    "ambiguous": false,
+                    "confidence": 0.99,
+                    "evidence_quote": "schedule a technical review on Thursday",
+                    "field": "next_action",
+                    "rationale": "The transcript names the account and explicitly states this next action; the current source has await decision.",
+                    "record_id": "northstar-demo",
+                    "to": "schedule a technical review on Thursday"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "outcome": "completed",
+      "receipt_id": "sha256:ee575f94f9c63d7b614f6f3202f0c439b81fde039d3a874c03143a62c701d981",
+      "result": {
+        "crm_cleanup_result": {
+          "data": {
+            "field_updates": [],
+            "findings": [],
+            "source": {
+              "aggregate_id": "demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+              "data_source_ref": "local://crm/dogfood",
+              "digest": "sha256:36c718f322813be3e3f8d51d627447e9e744776cc0b416b0dada9890365d5dff",
+              "event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:2",
+              "resource": "crm_records",
+              "version": 2
+            },
+            "status": "no_action",
+            "takeaways": [
+              "Northstar agreed to a Thursday technical review.",
+              "The discovery stage remains unchanged."
+            ],
+            "transcript_digest": "sha256:fd6cd30cb07d2f85225825825e97032109270cf5ab5c1c1e5d26db7f8f48a2a0",
+            "write_result": {
+              "after": [
+                {
+                  "fields": {
+                    "next_action": "schedule a technical review on Thursday",
+                    "stage": "discovery"
+                  },
+                  "id": "northstar-demo"
+                }
+              ],
+              "after_version": 2,
+              "attempted": false,
+              "before": [
+                {
+                  "fields": {
+                    "next_action": "schedule a technical review on Thursday",
+                    "stage": "discovery"
+                  },
+                  "id": "northstar-demo"
+                }
+              ],
+              "before_version": 2,
+              "event_ref": null,
+              "status": "not_attempted",
+              "verified": false,
+              "write_performed": false
+            }
+          }
+        }
+      },
+      "run_id": "run_reconcile_b9e05fa46d22e728",
+      "runner": "reconcile",
+      "schema": "runx.skill_run.v1",
+      "skill_name": "crm-cleanup",
+      "status": "sealed",
+      "trace": {
+        "graph": "crm-cleanup-reconcile",
+        "status": "succeeded",
+        "steps": [
+          {
+            "receipt_id": "sha256:2b55e92a22296ba0187be3229414a327c41b2fa7fd9ccfba3479d95ae18226be",
+            "skill": "tool:data.read_events",
+            "status": "success",
+            "step_id": "read-source"
+          },
+          {
+            "receipt_id": "sha256:f911e9b50f51457b9fda033544191466dcb4506989e5b8661c2f958a83c04480",
+            "skill": "tool:data.digest",
+            "status": "success",
+            "step_id": "digest-transcript"
+          },
+          {
+            "receipt_id": "sha256:0ca7643b31be0dd8c65fecd2091fef602a990c235c67b339857e35ec36a1b7ee",
+            "skill": "prepare",
+            "status": "success",
+            "step_id": "prepare"
+          },
+          {
+            "receipt_id": "sha256:f07ea222b6187a407412b23b2e0bdf02d236ff746daa613757554ee4c500bb57",
+            "skill": "run:agent-task",
+            "status": "success",
+            "step_id": "reconcile"
+          },
+          {
+            "receipt_id": "sha256:20eaceebc3459fd0024a46ddecf94ef83524a3eb5705439909daf75deb8ab958",
+            "skill": "plan",
+            "status": "success",
+            "step_id": "plan"
+          },
+          {
+            "receipt_id": "sha256:b85c7ad1ec90aae2c695fba7a636cb56257ded294aec63a316ac9733eafaced0",
+            "skill": "finalize-unchanged",
+            "status": "success",
+            "step_id": "finalize-unchanged"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "label": "independent-final-read",
+    "command": [
+      "runx",
+      "skill",
+      "/home/runner/work/runx/runx/submission/skills/data-store",
+      "read_events",
+      "--inputs",
+      "read.json",
+      "--receipts",
+      "/home/runner/work/_temp/crm-clean-install/receipts",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "artifact_refs": [
+        {
+          "bytes": 3388,
+          "digest": "sha256:7f4629a9497b8e718d19f1db14e52dd01a17fbf568dfbc431c5a3236e36eb302",
+          "media_type": "application/json",
+          "path": "/home/runner/work/_temp/crm-clean-install/.runx/artifacts/skill-runs/run_read_events_77d369a60415ca3b/diagnostics/execution-7f4629a9497b8e718d19f1db14e52dd01a17fbf568dfbc431c5a3236e36eb302.json",
+          "ref": "runx:project-artifact:sha256:7f4629a9497b8e718d19f1db14e52dd01a17fbf568dfbc431c5a3236e36eb302",
+          "schema": "runx.project_artifact_ref.v1"
+        }
+      ],
+      "closure": {
+        "closed_at": "2026-09-14T22:07:01.171Z",
+        "disposition": "closed",
+        "reason_code": "graph_closed",
+        "summary": "graph data-store-read-events completed"
+      },
+      "diagnostics_ref": {
+        "bytes": 3388,
+        "digest": "sha256:7f4629a9497b8e718d19f1db14e52dd01a17fbf568dfbc431c5a3236e36eb302",
+        "media_type": "application/json",
+        "path": "/home/runner/work/_temp/crm-clean-install/.runx/artifacts/skill-runs/run_read_events_77d369a60415ca3b/diagnostics/execution-7f4629a9497b8e718d19f1db14e52dd01a17fbf568dfbc431c5a3236e36eb302.json",
+        "ref": "runx:project-artifact:sha256:7f4629a9497b8e718d19f1db14e52dd01a17fbf568dfbc431c5a3236e36eb302",
+        "schema": "runx.project_artifact_ref.v1"
+      },
+      "next": null,
+      "outcome": "completed",
+      "receipt_id": "sha256:aa3008f85d6e7874969c116bcf6b45cdbcebf946a62f9535fb863e4d54783fdc",
+      "result": {
+        "data_operation_result": {
+          "data": {
+            "after_version": 2,
+            "aggregate_id": "demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+            "before_version": 2,
+            "data_source_ref": "local://crm/dogfood",
+            "event_digest": null,
+            "event_ref": null,
+            "events": [
+              {
+                "committed_at": "2026-09-14T22:07:00.315Z",
+                "event": {
+                  "cleanup": {
+                    "field_updates": [
+                      {
+                        "ambiguous": false,
+                        "confidence": 0.99,
+                        "evidence_quote": "schedule a technical review on Thursday",
+                        "field": "next_action",
+                        "from": "await decision",
+                        "rationale": "The transcript names the account and explicitly states this next action; the current source has await decision.",
+                        "record_id": "northstar-demo",
+                        "to": "schedule a technical review on Thursday"
+                      }
+                    ],
+                    "operation_key": "call-demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                    "source_event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:1",
+                    "transcript_digest": "sha256:fd6cd30cb07d2f85225825825e97032109270cf5ab5c1c1e5d26db7f8f48a2a0"
+                  },
+                  "records": [
+                    {
+                      "fields": {
+                        "next_action": "schedule a technical review on Thursday",
+                        "stage": "discovery"
+                      },
+                      "id": "northstar-demo"
+                    }
+                  ],
+                  "type": "crm.snapshot"
+                },
+                "event_digest": "sha256:36c718f322813be3e3f8d51d627447e9e744776cc0b416b0dada9890365d5dff",
+                "event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:2",
+                "event_type": "crm.snapshot",
+                "idempotency_key": "call-demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                "version": 2
+              }
+            ],
+            "has_more": false,
+            "idempotency_key": null,
+            "limit": 1,
+            "next_after_version": 2,
+            "operation": "read_events",
+            "projection": null,
+            "projection_digest": "sha256:76f6850ac4d8aec79679e112293f12cf083a08af15a014ae3bb35fde0f304dd2",
+            "provider": "sqlite-event-store",
+            "provider_evidence": {
+              "adapter": "data.sqlite",
+              "aggregate_id": "demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+              "data_source_ref_digest": "sha256:e7ece5d14b82bfb7c0e698c8e7841b48cd19eca33ff7c236d262ffbc3ce2d75f",
+              "provider": "sqlite-event-store",
+              "resource": "crm_records",
+              "storage_class": "sqlite"
+            },
+            "redactions": [],
+            "resource": "crm_records",
+            "result_digest": "sha256:faa056883dff5289f845b7c3b43c13d9425a131776e02e843a21201f5e07b248",
+            "rows": [
+              {
+                "committed_at": "2026-09-14T22:07:00.315Z",
+                "event": {
+                  "cleanup": {
+                    "field_updates": [
+                      {
+                        "ambiguous": false,
+                        "confidence": 0.99,
+                        "evidence_quote": "schedule a technical review on Thursday",
+                        "field": "next_action",
+                        "from": "await decision",
+                        "rationale": "The transcript names the account and explicitly states this next action; the current source has await decision.",
+                        "record_id": "northstar-demo",
+                        "to": "schedule a technical review on Thursday"
+                      }
+                    ],
+                    "operation_key": "call-demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                    "source_event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:1",
+                    "transcript_digest": "sha256:fd6cd30cb07d2f85225825825e97032109270cf5ab5c1c1e5d26db7f8f48a2a0"
+                  },
+                  "records": [
+                    {
+                      "fields": {
+                        "next_action": "schedule a technical review on Thursday",
+                        "stage": "discovery"
+                      },
+                      "id": "northstar-demo"
+                    }
+                  ],
+                  "type": "crm.snapshot"
+                },
+                "event_digest": "sha256:36c718f322813be3e3f8d51d627447e9e744776cc0b416b0dada9890365d5dff",
+                "event_ref": "crm_records:demo-f67cddd0-ef25-47bd-b437-7d27b9de400d:2",
+                "event_type": "crm.snapshot",
+                "idempotency_key": "call-demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+                "version": 2
+              }
+            ],
+            "schema": "runx.data.operation_result.v1",
+            "status": "read",
+            "stop_conditions": []
+          }
+        }
+      },
+      "run_id": "run_read_events_77d369a60415ca3b",
+      "runner": "read_events",
+      "schema": "runx.skill_run.v1",
+      "skill_name": "data-store",
+      "status": "sealed"
+    }
+  },
+  {
+    "label": "ci-public-verifier",
+    "kid": "crm-ci-34902422180",
+    "public_key_base64": "e75s8rV1lf+eVTiu5QyZ8VUK7J5U3haJt2cmPzzMuf4=",
+    "issuer_type": "ci",
+    "github_run_url": "https://github.com/kkebi50-svg/runx/actions/runs/34902422180"
+  },
+  {
+    "label": "verify-sha256-0ca7643b31be0dd8c65fecd2091fef602a990c235c67b339857e35ec36a1b7ee.json",
+    "command": [
+      "runx",
+      "verify",
+      "--receipt",
+      "/home/runner/work/_temp/crm-clean-install/receipts/sha256-0ca7643b31be0dd8c65fecd2091fef602a990c235c67b339857e35ec36a1b7ee.json",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "schema": "runx.verify_verdict.v1",
+      "receipt_id": "sha256:0ca7643b31be0dd8c65fecd2091fef602a990c235c67b339857e35ec36a1b7ee",
+      "valid": true,
+      "digest": {
+        "status": "valid",
+        "expected": "sha256:a15657917252c5bb765cdb5948015fb63413f04ffa2ff604443348b57032a619",
+        "actual": "sha256:a15657917252c5bb765cdb5948015fb63413f04ffa2ff604443348b57032a619"
+      },
+      "content_address": {
+        "status": "valid",
+        "expected": "sha256:0ca7643b31be0dd8c65fecd2091fef602a990c235c67b339857e35ec36a1b7ee",
+        "actual": "sha256:0ca7643b31be0dd8c65fecd2091fef602a990c235c67b339857e35ec36a1b7ee"
+      },
+      "signature": {
+        "mode": "production",
+        "status": "valid",
+        "kid": "crm-ci-34902422180"
+      },
+      "lineage": {
+        "status": "unverified",
+        "message": "single receipt verification cannot prove receipt-tree lineage"
+      },
+      "findings": []
+    }
+  },
+  {
+    "label": "verify-sha256-0fa7360b3d9e6c71f1c7f634c86c4ee02d8b778e773892dab122afff1bba604e.json",
+    "command": [
+      "runx",
+      "verify",
+      "--receipt",
+      "/home/runner/work/_temp/crm-clean-install/receipts/sha256-0fa7360b3d9e6c71f1c7f634c86c4ee02d8b778e773892dab122afff1bba604e.json",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "schema": "runx.verify_verdict.v1",
+      "receipt_id": "sha256:0fa7360b3d9e6c71f1c7f634c86c4ee02d8b778e773892dab122afff1bba604e",
+      "valid": true,
+      "digest": {
+        "status": "valid",
+        "expected": "sha256:a5668cf35c30bf140a72a216d11e14afdcbc6253e5fe5fcad3deb0c334bb50c2",
+        "actual": "sha256:a5668cf35c30bf140a72a216d11e14afdcbc6253e5fe5fcad3deb0c334bb50c2"
+      },
+      "content_address": {
+        "status": "valid",
+        "expected": "sha256:0fa7360b3d9e6c71f1c7f634c86c4ee02d8b778e773892dab122afff1bba604e",
+        "actual": "sha256:0fa7360b3d9e6c71f1c7f634c86c4ee02d8b778e773892dab122afff1bba604e"
+      },
+      "signature": {
+        "mode": "production",
+        "status": "valid",
+        "kid": "crm-ci-34902422180"
+      },
+      "lineage": {
+        "status": "unverified",
+        "message": "single receipt verification cannot prove receipt-tree lineage"
+      },
+      "findings": []
+    }
+  },
+  {
+    "label": "verify-sha256-17d8b7adec261f9a790093dd1582bf43f76b9151440b18175016403fcf0c5d01.json",
+    "command": [
+      "runx",
+      "verify",
+      "--receipt",
+      "/home/runner/work/_temp/crm-clean-install/receipts/sha256-17d8b7adec261f9a790093dd1582bf43f76b9151440b18175016403fcf0c5d01.json",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "schema": "runx.verify_verdict.v1",
+      "receipt_id": "sha256:17d8b7adec261f9a790093dd1582bf43f76b9151440b18175016403fcf0c5d01",
+      "valid": true,
+      "digest": {
+        "status": "valid",
+        "expected": "sha256:a16b61ca335a2abbd79da54d3561b7227532767f7c9cc03433b48d9f59114a5d",
+        "actual": "sha256:a16b61ca335a2abbd79da54d3561b7227532767f7c9cc03433b48d9f59114a5d"
+      },
+      "content_address": {
+        "status": "valid",
+        "expected": "sha256:17d8b7adec261f9a790093dd1582bf43f76b9151440b18175016403fcf0c5d01",
+        "actual": "sha256:17d8b7adec261f9a790093dd1582bf43f76b9151440b18175016403fcf0c5d01"
+      },
+      "signature": {
+        "mode": "production",
+        "status": "valid",
+        "kid": "crm-ci-34902422180"
+      },
+      "lineage": {
+        "status": "unverified",
+        "message": "single receipt verification cannot prove receipt-tree lineage"
+      },
+      "findings": []
+    }
+  },
+  {
+    "label": "verify-sha256-20eaceebc3459fd0024a46ddecf94ef83524a3eb5705439909daf75deb8ab958.json",
+    "command": [
+      "runx",
+      "verify",
+      "--receipt",
+      "/home/runner/work/_temp/crm-clean-install/receipts/sha256-20eaceebc3459fd0024a46ddecf94ef83524a3eb5705439909daf75deb8ab958.json",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "schema": "runx.verify_verdict.v1",
+      "receipt_id": "sha256:20eaceebc3459fd0024a46ddecf94ef83524a3eb5705439909daf75deb8ab958",
+      "valid": true,
+      "digest": {
+        "status": "valid",
+        "expected": "sha256:9f66dd131ce8aa7579dde53ed4348c2626a91e827a7071a1935ed54227a6d669",
+        "actual": "sha256:9f66dd131ce8aa7579dde53ed4348c2626a91e827a7071a1935ed54227a6d669"
+      },
+      "content_address": {
+        "status": "valid",
+        "expected": "sha256:20eaceebc3459fd0024a46ddecf94ef83524a3eb5705439909daf75deb8ab958",
+        "actual": "sha256:20eaceebc3459fd0024a46ddecf94ef83524a3eb5705439909daf75deb8ab958"
+      },
+      "signature": {
+        "mode": "production",
+        "status": "valid",
+        "kid": "crm-ci-34902422180"
+      },
+      "lineage": {
+        "status": "unverified",
+        "message": "single receipt verification cannot prove receipt-tree lineage"
+      },
+      "findings": []
+    }
+  },
+  {
+    "label": "verify-sha256-2b55e92a22296ba0187be3229414a327c41b2fa7fd9ccfba3479d95ae18226be.json",
+    "command": [
+      "runx",
+      "verify",
+      "--receipt",
+      "/home/runner/work/_temp/crm-clean-install/receipts/sha256-2b55e92a22296ba0187be3229414a327c41b2fa7fd9ccfba3479d95ae18226be.json",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "schema": "runx.verify_verdict.v1",
+      "receipt_id": "sha256:2b55e92a22296ba0187be3229414a327c41b2fa7fd9ccfba3479d95ae18226be",
+      "valid": true,
+      "digest": {
+        "status": "valid",
+        "expected": "sha256:14ec426ab7534c0bd0f37057c609c3451dbae1c1cbdbce7e9aa06e139c70a054",
+        "actual": "sha256:14ec426ab7534c0bd0f37057c609c3451dbae1c1cbdbce7e9aa06e139c70a054"
+      },
+      "content_address": {
+        "status": "valid",
+        "expected": "sha256:2b55e92a22296ba0187be3229414a327c41b2fa7fd9ccfba3479d95ae18226be",
+        "actual": "sha256:2b55e92a22296ba0187be3229414a327c41b2fa7fd9ccfba3479d95ae18226be"
+      },
+      "signature": {
+        "mode": "production",
+        "status": "valid",
+        "kid": "crm-ci-34902422180"
+      },
+      "lineage": {
+        "status": "unverified",
+        "message": "single receipt verification cannot prove receipt-tree lineage"
+      },
+      "findings": []
+    }
+  },
+  {
+    "label": "verify-sha256-31ff8c585eea5c6634ab5defdf6d01cabe09dc03bb99589dc112d77c2767b4c6.json",
+    "command": [
+      "runx",
+      "verify",
+      "--receipt",
+      "/home/runner/work/_temp/crm-clean-install/receipts/sha256-31ff8c585eea5c6634ab5defdf6d01cabe09dc03bb99589dc112d77c2767b4c6.json",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "schema": "runx.verify_verdict.v1",
+      "receipt_id": "sha256:31ff8c585eea5c6634ab5defdf6d01cabe09dc03bb99589dc112d77c2767b4c6",
+      "valid": true,
+      "digest": {
+        "status": "valid",
+        "expected": "sha256:101ed19fb128f21b0c4cdac3d2b5e327c8136a0ae3d7480c39180aa9a9223693",
+        "actual": "sha256:101ed19fb128f21b0c4cdac3d2b5e327c8136a0ae3d7480c39180aa9a9223693"
+      },
+      "content_address": {
+        "status": "valid",
+        "expected": "sha256:31ff8c585eea5c6634ab5defdf6d01cabe09dc03bb99589dc112d77c2767b4c6",
+        "actual": "sha256:31ff8c585eea5c6634ab5defdf6d01cabe09dc03bb99589dc112d77c2767b4c6"
+      },
+      "signature": {
+        "mode": "production",
+        "status": "valid",
+        "kid": "crm-ci-34902422180"
+      },
+      "lineage": {
+        "status": "unverified",
+        "message": "single receipt verification cannot prove receipt-tree lineage"
+      },
+      "findings": []
+    }
+  },
+  {
+    "label": "verify-sha256-325e4b2c53cf8a3384b2051ec2ea5921eec7e36a9029e2b7af0f4258ca053eb1.json",
+    "command": [
+      "runx",
+      "verify",
+      "--receipt",
+      "/home/runner/work/_temp/crm-clean-install/receipts/sha256-325e4b2c53cf8a3384b2051ec2ea5921eec7e36a9029e2b7af0f4258ca053eb1.json",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "schema": "runx.verify_verdict.v1",
+      "receipt_id": "sha256:325e4b2c53cf8a3384b2051ec2ea5921eec7e36a9029e2b7af0f4258ca053eb1",
+      "valid": true,
+      "digest": {
+        "status": "valid",
+        "expected": "sha256:5c9855d0c91a5d443fbbe76dc4ae772b2deb4017fbcd631ca50509825e49eced",
+        "actual": "sha256:5c9855d0c91a5d443fbbe76dc4ae772b2deb4017fbcd631ca50509825e49eced"
+      },
+      "content_address": {
+        "status": "valid",
+        "expected": "sha256:325e4b2c53cf8a3384b2051ec2ea5921eec7e36a9029e2b7af0f4258ca053eb1",
+        "actual": "sha256:325e4b2c53cf8a3384b2051ec2ea5921eec7e36a9029e2b7af0f4258ca053eb1"
+      },
+      "signature": {
+        "mode": "production",
+        "status": "valid",
+        "kid": "crm-ci-34902422180"
+      },
+      "lineage": {
+        "status": "unverified",
+        "message": "single receipt verification cannot prove receipt-tree lineage"
+      },
+      "findings": []
+    }
+  },
+  {
+    "label": "verify-sha256-33b50ff8613a13dca1b4d9dd1aaf96107db3cfd5b36021d3e20bacc579bf96be.json",
+    "command": [
+      "runx",
+      "verify",
+      "--receipt",
+      "/home/runner/work/_temp/crm-clean-install/receipts/sha256-33b50ff8613a13dca1b4d9dd1aaf96107db3cfd5b36021d3e20bacc579bf96be.json",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "schema": "runx.verify_verdict.v1",
+      "receipt_id": "sha256:33b50ff8613a13dca1b4d9dd1aaf96107db3cfd5b36021d3e20bacc579bf96be",
+      "valid": true,
+      "digest": {
+        "status": "valid",
+        "expected": "sha256:ea94a526a59fdb139643038b923c7344db9ea1b22677eb63f81f29f18ce47d61",
+        "actual": "sha256:ea94a526a59fdb139643038b923c7344db9ea1b22677eb63f81f29f18ce47d61"
+      },
+      "content_address": {
+        "status": "valid",
+        "expected": "sha256:33b50ff8613a13dca1b4d9dd1aaf96107db3cfd5b36021d3e20bacc579bf96be",
+        "actual": "sha256:33b50ff8613a13dca1b4d9dd1aaf96107db3cfd5b36021d3e20bacc579bf96be"
+      },
+      "signature": {
+        "mode": "production",
+        "status": "valid",
+        "kid": "crm-ci-34902422180"
+      },
+      "lineage": {
+        "status": "unverified",
+        "message": "single receipt verification cannot prove receipt-tree lineage"
+      },
+      "findings": []
+    }
+  },
+  {
+    "label": "verify-sha256-35b3a2e19e3937a8a8511594418192b37786a62090b0fe51205e863285eb7c6b.json",
+    "command": [
+      "runx",
+      "verify",
+      "--receipt",
+      "/home/runner/work/_temp/crm-clean-install/receipts/sha256-35b3a2e19e3937a8a8511594418192b37786a62090b0fe51205e863285eb7c6b.json",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "schema": "runx.verify_verdict.v1",
+      "receipt_id": "sha256:35b3a2e19e3937a8a8511594418192b37786a62090b0fe51205e863285eb7c6b",
+      "valid": true,
+      "digest": {
+        "status": "valid",
+        "expected": "sha256:c9bb2150dd90442ccba80658e8cb1bd14a7f7d51a08275ad05e1c1bf93deb86a",
+        "actual": "sha256:c9bb2150dd90442ccba80658e8cb1bd14a7f7d51a08275ad05e1c1bf93deb86a"
+      },
+      "content_address": {
+        "status": "valid",
+        "expected": "sha256:35b3a2e19e3937a8a8511594418192b37786a62090b0fe51205e863285eb7c6b",
+        "actual": "sha256:35b3a2e19e3937a8a8511594418192b37786a62090b0fe51205e863285eb7c6b"
+      },
+      "signature": {
+        "mode": "production",
+        "status": "valid",
+        "kid": "crm-ci-34902422180"
+      },
+      "lineage": {
+        "status": "unverified",
+        "message": "single receipt verification cannot prove receipt-tree lineage"
+      },
+      "findings": []
+    }
+  },
+  {
+    "label": "verify-sha256-4d895f738541d8a698ba2eb17012df2d098a65a5b12fd9f3ba46532d0c3e4a07.json",
+    "command": [
+      "runx",
+      "verify",
+      "--receipt",
+      "/home/runner/work/_temp/crm-clean-install/receipts/sha256-4d895f738541d8a698ba2eb17012df2d098a65a5b12fd9f3ba46532d0c3e4a07.json",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "schema": "runx.verify_verdict.v1",
+      "receipt_id": "sha256:4d895f738541d8a698ba2eb17012df2d098a65a5b12fd9f3ba46532d0c3e4a07",
+      "valid": true,
+      "digest": {
+        "status": "valid",
+        "expected": "sha256:5c49519bea422502b48a9cb16988ee95f5e6d128349f0a5a2cafb63124648dae",
+        "actual": "sha256:5c49519bea422502b48a9cb16988ee95f5e6d128349f0a5a2cafb63124648dae"
+      },
+      "content_address": {
+        "status": "valid",
+        "expected": "sha256:4d895f738541d8a698ba2eb17012df2d098a65a5b12fd9f3ba46532d0c3e4a07",
+        "actual": "sha256:4d895f738541d8a698ba2eb17012df2d098a65a5b12fd9f3ba46532d0c3e4a07"
+      },
+      "signature": {
+        "mode": "production",
+        "status": "valid",
+        "kid": "crm-ci-34902422180"
+      },
+      "lineage": {
+        "status": "unverified",
+        "message": "single receipt verification cannot prove receipt-tree lineage"
+      },
+      "findings": []
+    }
+  },
+  {
+    "label": "verify-sha256-55a3a610387511ae9a35bd25bf11524606ac2d16a427ac3be2187af562217350.json",
+    "command": [
+      "runx",
+      "verify",
+      "--receipt",
+      "/home/runner/work/_temp/crm-clean-install/receipts/sha256-55a3a610387511ae9a35bd25bf11524606ac2d16a427ac3be2187af562217350.json",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "schema": "runx.verify_verdict.v1",
+      "receipt_id": "sha256:55a3a610387511ae9a35bd25bf11524606ac2d16a427ac3be2187af562217350",
+      "valid": true,
+      "digest": {
+        "status": "valid",
+        "expected": "sha256:3c52a7dcfeddeffbf38a0564672f18a872ba38923da4f3f4638c1776ae6f8522",
+        "actual": "sha256:3c52a7dcfeddeffbf38a0564672f18a872ba38923da4f3f4638c1776ae6f8522"
+      },
+      "content_address": {
+        "status": "valid",
+        "expected": "sha256:55a3a610387511ae9a35bd25bf11524606ac2d16a427ac3be2187af562217350",
+        "actual": "sha256:55a3a610387511ae9a35bd25bf11524606ac2d16a427ac3be2187af562217350"
+      },
+      "signature": {
+        "mode": "production",
+        "status": "valid",
+        "kid": "crm-ci-34902422180"
+      },
+      "lineage": {
+        "status": "unverified",
+        "message": "single receipt verification cannot prove receipt-tree lineage"
+      },
+      "findings": []
+    }
+  },
+  {
+    "label": "verify-sha256-75f0f1f6ca968020397d43aad6b0f121ff1a27b16a956928170e52131590867a.json",
+    "command": [
+      "runx",
+      "verify",
+      "--receipt",
+      "/home/runner/work/_temp/crm-clean-install/receipts/sha256-75f0f1f6ca968020397d43aad6b0f121ff1a27b16a956928170e52131590867a.json",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "schema": "runx.verify_verdict.v1",
+      "receipt_id": "sha256:75f0f1f6ca968020397d43aad6b0f121ff1a27b16a956928170e52131590867a",
+      "valid": true,
+      "digest": {
+        "status": "valid",
+        "expected": "sha256:54bdcbc3be7e273b5d354e708d7e3882556d53da416001e0b528c3280a0d93b0",
+        "actual": "sha256:54bdcbc3be7e273b5d354e708d7e3882556d53da416001e0b528c3280a0d93b0"
+      },
+      "content_address": {
+        "status": "valid",
+        "expected": "sha256:75f0f1f6ca968020397d43aad6b0f121ff1a27b16a956928170e52131590867a",
+        "actual": "sha256:75f0f1f6ca968020397d43aad6b0f121ff1a27b16a956928170e52131590867a"
+      },
+      "signature": {
+        "mode": "production",
+        "status": "valid",
+        "kid": "crm-ci-34902422180"
+      },
+      "lineage": {
+        "status": "unverified",
+        "message": "single receipt verification cannot prove receipt-tree lineage"
+      },
+      "findings": []
+    }
+  },
+  {
+    "label": "verify-sha256-aa3008f85d6e7874969c116bcf6b45cdbcebf946a62f9535fb863e4d54783fdc.json",
+    "command": [
+      "runx",
+      "verify",
+      "--receipt",
+      "/home/runner/work/_temp/crm-clean-install/receipts/sha256-aa3008f85d6e7874969c116bcf6b45cdbcebf946a62f9535fb863e4d54783fdc.json",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "schema": "runx.verify_verdict.v1",
+      "receipt_id": "sha256:aa3008f85d6e7874969c116bcf6b45cdbcebf946a62f9535fb863e4d54783fdc",
+      "valid": true,
+      "digest": {
+        "status": "valid",
+        "expected": "sha256:3195fea6ca3c0e1e9b06229b6ea0637ec6c6cc0079aa7a360f93800fbc52fcaa",
+        "actual": "sha256:3195fea6ca3c0e1e9b06229b6ea0637ec6c6cc0079aa7a360f93800fbc52fcaa"
+      },
+      "content_address": {
+        "status": "valid",
+        "expected": "sha256:aa3008f85d6e7874969c116bcf6b45cdbcebf946a62f9535fb863e4d54783fdc",
+        "actual": "sha256:aa3008f85d6e7874969c116bcf6b45cdbcebf946a62f9535fb863e4d54783fdc"
+      },
+      "signature": {
+        "mode": "production",
+        "status": "valid",
+        "kid": "crm-ci-34902422180"
+      },
+      "lineage": {
+        "status": "unverified",
+        "message": "single receipt verification cannot prove receipt-tree lineage"
+      },
+      "findings": []
+    }
+  },
+  {
+    "label": "verify-sha256-b85c7ad1ec90aae2c695fba7a636cb56257ded294aec63a316ac9733eafaced0.json",
+    "command": [
+      "runx",
+      "verify",
+      "--receipt",
+      "/home/runner/work/_temp/crm-clean-install/receipts/sha256-b85c7ad1ec90aae2c695fba7a636cb56257ded294aec63a316ac9733eafaced0.json",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "schema": "runx.verify_verdict.v1",
+      "receipt_id": "sha256:b85c7ad1ec90aae2c695fba7a636cb56257ded294aec63a316ac9733eafaced0",
+      "valid": true,
+      "digest": {
+        "status": "valid",
+        "expected": "sha256:c162918a44487bef0f44efdd984ca1ad8fbf17124337797d763eb9c2d4856f4c",
+        "actual": "sha256:c162918a44487bef0f44efdd984ca1ad8fbf17124337797d763eb9c2d4856f4c"
+      },
+      "content_address": {
+        "status": "valid",
+        "expected": "sha256:b85c7ad1ec90aae2c695fba7a636cb56257ded294aec63a316ac9733eafaced0",
+        "actual": "sha256:b85c7ad1ec90aae2c695fba7a636cb56257ded294aec63a316ac9733eafaced0"
+      },
+      "signature": {
+        "mode": "production",
+        "status": "valid",
+        "kid": "crm-ci-34902422180"
+      },
+      "lineage": {
+        "status": "unverified",
+        "message": "single receipt verification cannot prove receipt-tree lineage"
+      },
+      "findings": []
+    }
+  },
+  {
+    "label": "verify-sha256-bf2d96753bd17362c2425b9207888c30863855e0223a867a6ac7a67a61303479.json",
+    "command": [
+      "runx",
+      "verify",
+      "--receipt",
+      "/home/runner/work/_temp/crm-clean-install/receipts/sha256-bf2d96753bd17362c2425b9207888c30863855e0223a867a6ac7a67a61303479.json",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "schema": "runx.verify_verdict.v1",
+      "receipt_id": "sha256:bf2d96753bd17362c2425b9207888c30863855e0223a867a6ac7a67a61303479",
+      "valid": true,
+      "digest": {
+        "status": "valid",
+        "expected": "sha256:2f4b958760126828ccc860778234f77eb0391ee9291f3a33ec632d02f932726e",
+        "actual": "sha256:2f4b958760126828ccc860778234f77eb0391ee9291f3a33ec632d02f932726e"
+      },
+      "content_address": {
+        "status": "valid",
+        "expected": "sha256:bf2d96753bd17362c2425b9207888c30863855e0223a867a6ac7a67a61303479",
+        "actual": "sha256:bf2d96753bd17362c2425b9207888c30863855e0223a867a6ac7a67a61303479"
+      },
+      "signature": {
+        "mode": "production",
+        "status": "valid",
+        "kid": "crm-ci-34902422180"
+      },
+      "lineage": {
+        "status": "unverified",
+        "message": "single receipt verification cannot prove receipt-tree lineage"
+      },
+      "findings": []
+    }
+  },
+  {
+    "label": "verify-sha256-ccf31d29ecd95a14f222b892b733b2b3cc2b8ddeb50e950af9167e563f29ec5c.json",
+    "command": [
+      "runx",
+      "verify",
+      "--receipt",
+      "/home/runner/work/_temp/crm-clean-install/receipts/sha256-ccf31d29ecd95a14f222b892b733b2b3cc2b8ddeb50e950af9167e563f29ec5c.json",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "schema": "runx.verify_verdict.v1",
+      "receipt_id": "sha256:ccf31d29ecd95a14f222b892b733b2b3cc2b8ddeb50e950af9167e563f29ec5c",
+      "valid": true,
+      "digest": {
+        "status": "valid",
+        "expected": "sha256:f5add446a0cdc6603ec04a8e171a7bb6627d821fcd1c2f8d01cab8ff40a40311",
+        "actual": "sha256:f5add446a0cdc6603ec04a8e171a7bb6627d821fcd1c2f8d01cab8ff40a40311"
+      },
+      "content_address": {
+        "status": "valid",
+        "expected": "sha256:ccf31d29ecd95a14f222b892b733b2b3cc2b8ddeb50e950af9167e563f29ec5c",
+        "actual": "sha256:ccf31d29ecd95a14f222b892b733b2b3cc2b8ddeb50e950af9167e563f29ec5c"
+      },
+      "signature": {
+        "mode": "production",
+        "status": "valid",
+        "kid": "crm-ci-34902422180"
+      },
+      "lineage": {
+        "status": "unverified",
+        "message": "single receipt verification cannot prove receipt-tree lineage"
+      },
+      "findings": []
+    }
+  },
+  {
+    "label": "verify-sha256-ee575f94f9c63d7b614f6f3202f0c439b81fde039d3a874c03143a62c701d981.json",
+    "command": [
+      "runx",
+      "verify",
+      "--receipt",
+      "/home/runner/work/_temp/crm-clean-install/receipts/sha256-ee575f94f9c63d7b614f6f3202f0c439b81fde039d3a874c03143a62c701d981.json",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "schema": "runx.verify_verdict.v1",
+      "receipt_id": "sha256:ee575f94f9c63d7b614f6f3202f0c439b81fde039d3a874c03143a62c701d981",
+      "valid": true,
+      "digest": {
+        "status": "valid",
+        "expected": "sha256:ef0341690b31d1ac019e725c970f88b7e1bcf4bea71503068e7536e522e73d64",
+        "actual": "sha256:ef0341690b31d1ac019e725c970f88b7e1bcf4bea71503068e7536e522e73d64"
+      },
+      "content_address": {
+        "status": "valid",
+        "expected": "sha256:ee575f94f9c63d7b614f6f3202f0c439b81fde039d3a874c03143a62c701d981",
+        "actual": "sha256:ee575f94f9c63d7b614f6f3202f0c439b81fde039d3a874c03143a62c701d981"
+      },
+      "signature": {
+        "mode": "production",
+        "status": "valid",
+        "kid": "crm-ci-34902422180"
+      },
+      "lineage": {
+        "status": "unverified",
+        "message": "single receipt verification cannot prove receipt-tree lineage"
+      },
+      "findings": []
+    }
+  },
+  {
+    "label": "verify-sha256-f07ea222b6187a407412b23b2e0bdf02d236ff746daa613757554ee4c500bb57.json",
+    "command": [
+      "runx",
+      "verify",
+      "--receipt",
+      "/home/runner/work/_temp/crm-clean-install/receipts/sha256-f07ea222b6187a407412b23b2e0bdf02d236ff746daa613757554ee4c500bb57.json",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "schema": "runx.verify_verdict.v1",
+      "receipt_id": "sha256:f07ea222b6187a407412b23b2e0bdf02d236ff746daa613757554ee4c500bb57",
+      "valid": true,
+      "digest": {
+        "status": "valid",
+        "expected": "sha256:4a91fe2a99fc7b009fd8dc2c55cd5eefbb124e5d62b2d4cdcbb530bd470a3f21",
+        "actual": "sha256:4a91fe2a99fc7b009fd8dc2c55cd5eefbb124e5d62b2d4cdcbb530bd470a3f21"
+      },
+      "content_address": {
+        "status": "valid",
+        "expected": "sha256:f07ea222b6187a407412b23b2e0bdf02d236ff746daa613757554ee4c500bb57",
+        "actual": "sha256:f07ea222b6187a407412b23b2e0bdf02d236ff746daa613757554ee4c500bb57"
+      },
+      "signature": {
+        "mode": "production",
+        "status": "valid",
+        "kid": "crm-ci-34902422180"
+      },
+      "lineage": {
+        "status": "unverified",
+        "message": "single receipt verification cannot prove receipt-tree lineage"
+      },
+      "findings": []
+    }
+  },
+  {
+    "label": "verify-sha256-f2cb1b0855e3128e3eb72f13eaaeefa34b053932a0545305b10b31500181ad1e.json",
+    "command": [
+      "runx",
+      "verify",
+      "--receipt",
+      "/home/runner/work/_temp/crm-clean-install/receipts/sha256-f2cb1b0855e3128e3eb72f13eaaeefa34b053932a0545305b10b31500181ad1e.json",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "schema": "runx.verify_verdict.v1",
+      "receipt_id": "sha256:f2cb1b0855e3128e3eb72f13eaaeefa34b053932a0545305b10b31500181ad1e",
+      "valid": true,
+      "digest": {
+        "status": "valid",
+        "expected": "sha256:caaf425e32d47f88f027a9388fbc62b2d12b5e8638902b2200482e5788457d0a",
+        "actual": "sha256:caaf425e32d47f88f027a9388fbc62b2d12b5e8638902b2200482e5788457d0a"
+      },
+      "content_address": {
+        "status": "valid",
+        "expected": "sha256:f2cb1b0855e3128e3eb72f13eaaeefa34b053932a0545305b10b31500181ad1e",
+        "actual": "sha256:f2cb1b0855e3128e3eb72f13eaaeefa34b053932a0545305b10b31500181ad1e"
+      },
+      "signature": {
+        "mode": "production",
+        "status": "valid",
+        "kid": "crm-ci-34902422180"
+      },
+      "lineage": {
+        "status": "unverified",
+        "message": "single receipt verification cannot prove receipt-tree lineage"
+      },
+      "findings": []
+    }
+  },
+  {
+    "label": "verify-sha256-f911e9b50f51457b9fda033544191466dcb4506989e5b8661c2f958a83c04480.json",
+    "command": [
+      "runx",
+      "verify",
+      "--receipt",
+      "/home/runner/work/_temp/crm-clean-install/receipts/sha256-f911e9b50f51457b9fda033544191466dcb4506989e5b8661c2f958a83c04480.json",
+      "--json"
+    ],
+    "exit_code": 0,
+    "value": {
+      "schema": "runx.verify_verdict.v1",
+      "receipt_id": "sha256:f911e9b50f51457b9fda033544191466dcb4506989e5b8661c2f958a83c04480",
+      "valid": true,
+      "digest": {
+        "status": "valid",
+        "expected": "sha256:5442f51adb7370751d2a43744ea86257b82fe8c6978237ade67124329b38d713",
+        "actual": "sha256:5442f51adb7370751d2a43744ea86257b82fe8c6978237ade67124329b38d713"
+      },
+      "content_address": {
+        "status": "valid",
+        "expected": "sha256:f911e9b50f51457b9fda033544191466dcb4506989e5b8661c2f958a83c04480",
+        "actual": "sha256:f911e9b50f51457b9fda033544191466dcb4506989e5b8661c2f958a83c04480"
+      },
+      "signature": {
+        "mode": "production",
+        "status": "valid",
+        "kid": "crm-ci-34902422180"
+      },
+      "lineage": {
+        "status": "unverified",
+        "message": "single receipt verification cannot prove receipt-tree lineage"
+      },
+      "findings": []
+    }
+  },
+  {
+    "label": "completed",
+    "package": "kkebi50-svg/crm-cleanup@0.2.0",
+    "input": {
+      "data_source_ref": "local://crm/dogfood",
+      "resource": "crm_records",
+      "aggregate_id": "demo-f67cddd0-ef25-47bd-b437-7d27b9de400d",
+      "transcript": "Northstar demo account: the next action is schedule a technical review on Thursday. Keep the stage at discovery until that review.",
+      "crm_schema": {
+        "allowed_fields": [
+          "next_action",
+          "stage"
+        ],
+        "minimum_confidence": 0.95
+      },
+      "operation_key": "call-demo-f67cddd0-ef25-47bd-b437-7d27b9de400d"
+    },
+    "receipt_id": "sha256:325e4b2c53cf8a3384b2051ec2ea5921eec7e36a9029e2b7af0f4258ca053eb1",
+    "source_revision": "7a5d77fdd2a33cab57f8b34843847295aa618b87",
+    "note": "Synthetic CRM, real native SQLite read/write/readback. CI Ed25519 issuer; no hosted identity or live customer data claimed."
+  }
+]
