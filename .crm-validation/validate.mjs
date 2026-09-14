@@ -1,9 +1,10 @@
 // Host orchestration for a candidate, not a skill runtime or alternative verifier.
-import {execFileSync} from 'node:child_process';
-import fs from 'node:fs';
+import {execFileSync,spawnSync} from 'node:child_process';
 const command = args => {
-  const raw=execFileSync('runx',args,{encoding:'utf8',maxBuffer:8*1024*1024});
-  return JSON.parse(raw);
+  const run=spawnSync('runx',args,{encoding:'utf8',maxBuffer:8*1024*1024});
+  if(run.error) throw run.error;
+  if(!run.stdout.trim()) throw new Error(run.stderr||'Runx returned no structured result');
+  return JSON.parse(run.stdout);
 };
 console.log(execFileSync('runx',['--version'],{encoding:'utf8'}));
 const start=command(['skill','./skills/skill-lab','build','-i','objective=Validate CRM cleanup source read, grounded updates, conditional write and independent readback.','-i','target_dir=skills/crm-cleanup','--json']);
