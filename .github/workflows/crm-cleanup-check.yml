@@ -40,6 +40,7 @@ jobs:
       - name: Check workspace types
         run: pnpm typecheck
       - name: Test workspace
+        id: workspace_tests
         continue-on-error: true
         run: pnpm test
       - name: Test isolated CLI package contract
@@ -49,3 +50,6 @@ jobs:
           node scripts/audit-core-skills.mjs --check --json > "$RUNNER_TEMP/core-audit.json" || audit_status=$?
           node -e 'const fs=require("fs");const r=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/core-audit.json"));console.log(JSON.stringify({status:r.status,summary:r.summary,findings:r.findings}));'
           exit "${audit_status:-0}"
+      - name: Preserve full-suite failure status
+        if: always() && steps.workspace_tests.outcome == 'failure'
+        run: exit 1
