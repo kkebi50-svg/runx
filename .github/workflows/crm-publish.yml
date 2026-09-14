@@ -1,0 +1,46 @@
+name: Publish exact CRM cleanup package
+on:
+  push:
+    branches: [codex/crm-publication]
+    paths: ['.github/workflows/crm-publish.yml', '.crm-validation/publish-dogfood.mjs']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: kkebi50-svg/runx
+          ref: 7a5d77fdd2a33cab57f8b34843847295aa618b87
+          path: submission
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Install released native CLI
+        run: |
+          npm install --prefix "$RUNNER_TEMP/crm-runtime" --ignore-scripts @runxhq/cli@0.9.1
+          echo "$RUNNER_TEMP/crm-runtime/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Verify exact source and native harness
+        working-directory: submission
+        run: |
+          test "$(git rev-parse HEAD)" = 7a5d77fdd2a33cab57f8b34843847295aa618b87
+          runx --version
+          runx harness ./skills/crm-cleanup --json > "$RUNNER_TEMP/prepublish-harness.json"
+          cat "$RUNNER_TEMP/prepublish-harness.json"
+      - name: Publish to Runx registry
+        working-directory: submission
+        env:
+          RUNX_PUBLIC_API_TOKEN: ${{ secrets.CRM_RUNX_PUBLISH_TOKEN }}
+        run: |
+          test -n "$RUNX_PUBLIC_API_TOKEN"
+          runx registry publish ./skills/crm-cleanup/SKILL.md --version 0.2.0 --registry https://api.runx.ai --json > "$RUNNER_TEMP/crm-publish.json"
+          cat "$RUNNER_TEMP/crm-publish.json"
+      - name: Install published package and dogfood with CI signatures
+        run: node .crm-validation/publish-dogfood.mjs
