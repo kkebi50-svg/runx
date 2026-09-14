@@ -9,7 +9,7 @@ permissions:
 jobs:
   native-validation:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7
         with:
@@ -23,3 +23,21 @@ jobs:
           echo "$RUNNER_TEMP/crm-runtime/node_modules/.bin" >> "$GITHUB_PATH"
       - name: Apply and validate through canonical skill-lab
         run: node .crm-validation/validate.mjs
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.18.2
+      - name: Regenerate official metadata with native parser
+        run: |
+          export RUNX_RUST_CLI_BIN="$(find "$RUNNER_TEMP/crm-runtime/node_modules" -path '*/bin/runx' -type f -executable | grep cli-linux | head -1)"
+          test -n "$RUNX_RUST_CLI_BIN"
+          node scripts/generate-official-lock.mjs
+          node scripts/generate-official-lock.mjs --check
+          node scripts/audit-core-skills.mjs --check --json
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build workspace
+        run: pnpm build
+      - name: Check workspace types
+        run: pnpm typecheck
+      - name: Test workspace
+        run: pnpm test
