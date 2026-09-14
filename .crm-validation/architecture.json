@@ -1,0 +1,222 @@
+{
+  "answers": {
+    "agent_task.skill-lab-architecture.output": {
+      "architecture_decision": {
+        "schema": "runx.skill.architecture_decision.v1",
+        "disposition": "extend_existing",
+        "objective": "Deliver Frantic bounty 79: read current CRM state from an operator-selected source, reconcile a transcript, execute grounded allowlisted updates through a real transport, and independently read back the same state. Publish and verify the exact package under the contributor identity.",
+        "operator_value": "An operator receives verified CRM changes or a clear no-op, review, conflict, or refusal outcome, with each field traced to the current record and transcript evidence.",
+        "identity": {
+          "current_name": "crm-cleanup",
+          "proposed_name": "crm-cleanup",
+          "action": "keep",
+          "visibility": "public",
+          "rationale": "CRM cleanup is the requested existing capability. Keep the package name and publish the contributor version as kkebi50-svg/crm-cleanup; do not create an adjacent first-party name."
+        },
+        "knowledge_contract": {
+          "purpose": "Teach bounded transcript-to-CRM reconciliation, field evidence, uncertainty, source ownership, mutation authority, concurrency, and independently verified finality.",
+          "evidence_required": [
+            "Current bounded CRM snapshot read at runtime using data.read_events from the operator-selected logical source and aggregate.",
+            "Transcript and schema allowlist with field meanings and record identity.",
+            "For every proposed field: record id, prior value, exact quote, rationale, confidence and ambiguity status.",
+            "Native append result and independent native readback from the same source."
+          ],
+          "decision_logic": [
+            "Read one latest complete CRM snapshot event; reject absent, malformed, duplicate-id or non-snapshot sources.",
+            "Agent judgment extracts takeaways and proposed changes; quoted evidence alone is not semantic entailment and confidence must be justified.",
+            "Deterministic CRM policy enforces record identity, allowlist, verbatim evidence, unchanged-value no-op, unique field targets, and minimum confidence.",
+            "Any ambiguous, contradictory or insufficiently supported change blocks the mutation and returns needs_review.",
+            "Apply a complete new CRM snapshot with data.append_event using the observed source version and a caller-supplied stable operation key, then read back and compare all records.",
+            "No-op and refused branches execute no append. A version conflict never claims a write. A readback failure remains unverified, not successful."
+          ],
+          "stop_conditions": [
+            "Missing transcript, missing bound source, unavailable scope, absent CRM snapshot, unsupported schema or oversized control input.",
+            "Uncertain record matching, low confidence, contradictory evidence, unknown field, concurrent modification or mismatched readback.",
+            "Windows deterministic worker cannot install its resource limits in the current environment; successful harness evidence requires an unchanged supported runtime environment."
+          ],
+          "recovery": [
+            "Supply the missing bounded evidence or correct source binding, retaining the transcript and unresolved findings.",
+            "After a conflict re-read current source state and reconcile again; do not blindly retry stale updates.",
+            "After uncertain execution, read back the existing source and use the same operation identity rather than duplicating the write.",
+            "Resolve the runtime environment failure before publishing or claiming harness success."
+          ]
+        },
+        "required_behaviors": [
+          {
+            "id": "manual",
+            "outcome": "Explain transcript evidence, field policy, source snapshot contract, operator-selected transport and honest finality.",
+            "lane": "manual"
+          },
+          {
+            "id": "source-read",
+            "outcome": "Read the current bounded CRM snapshot event and retain native source, version and digest evidence.",
+            "lane": "native_capability",
+            "reuse_ref": "data.read_events"
+          },
+          {
+            "id": "interpret",
+            "outcome": "Extract takeaways and grounded candidate updates with confidence and record identity; report uncertainty explicitly.",
+            "lane": "agent_task"
+          },
+          {
+            "id": "crm-policy",
+            "outcome": "Validate semantic evidence relationships, compute exact before/after CRM records, reject ambiguous updates, and compare independently read-back records.",
+            "lane": "domain_module",
+            "domain_module_justification": "CRM field matching, unchanged-value detection, evidence quote membership, conflicting targets, confidence policy and full-record comparison are deterministic domain computation. Native data operations do not own these semantics; the module uses no filesystem, network, hashing or process APIs."
+          },
+          {
+            "id": "branch",
+            "outcome": "Route no-op/review/refusal without effects, otherwise execute the exact planned state transition and readback.",
+            "lane": "graph"
+          },
+          {
+            "id": "write",
+            "outcome": "Append the CRM state transition with native version comparison, idempotency and source-bound receipt evidence.",
+            "lane": "native_capability",
+            "reuse_ref": "data.append_event"
+          },
+          {
+            "id": "readback",
+            "outcome": "Independently read the latest CRM event after execution from the same operator-selected source.",
+            "lane": "native_capability",
+            "reuse_ref": "data.read_events"
+          },
+          {
+            "id": "transport-binding",
+            "outcome": "The operator-selected data-source adapter executes bounded reads and appends; native SQLite provides the explicitly synthetic CRM transport for validation. No provider simulator is implemented in the skill.",
+            "lane": "provider_adapter"
+          }
+        ],
+        "native_reuse": {
+          "inspected_capabilities": [
+            "data.read_events",
+            "data.read_projection",
+            "data.append_event",
+            "data.list_stream_heads",
+            "data.digest",
+            "provider.read",
+            "provider.mutate"
+          ],
+          "selected_capabilities": [
+            "data.read_events",
+            "data.append_event",
+            "data.digest"
+          ],
+          "missing_capabilities": []
+        },
+        "effects": [
+          {
+            "effect": "read",
+            "authority_scopes": [
+              "runx:data:read"
+            ],
+            "approval": "none",
+            "provider_boundary": true
+          },
+          {
+            "effect": "mutate",
+            "authority_scopes": [
+              "runx:data:append"
+            ],
+            "approval": "policy",
+            "provider_boundary": true
+          }
+        ],
+        "skill_chain": {
+          "context_skills": [
+            "data-store"
+          ],
+          "routes": [
+            "CRM cleanup owns CRM policy. data-store owns canonical source read and conditional append semantics; the operator selects the bound adapter. Native SQLite is an explicitly synthetic mock CRM transport for dogfood, never a live customer CRM claim. The result preserves transcript evidence, record identity, before/after values, version, operation identity and native receipts; a proposal is unattempted until the append executes, and a native append is unverified until the independent readback matches.",
+            "The canonical registry CLI separately publishes and reads back the exact locally validated kkebi50-svg/crm-cleanup version. No registry HTTP, credential handling or publication behavior is embedded in the skill."
+          ]
+        },
+        "resource_budget": {
+          "max_files": 8,
+          "max_executable_lines": 260,
+          "max_fanout": 1,
+          "max_process_spawns": 1,
+          "network_allowed": false
+        },
+        "preservation_obligations": [
+          "Preserve the existing crm-cleanup identity and its evidence, allowlist, no-op and refusal semantics while replacing proposal-only default finality with the required executed-and-verified workflow.",
+          "Keep all changes inside skills/crm-cleanup; preserve unrelated products and runtime protections.",
+          "Use typed small control inputs: transcript maximum 16000 characters, at most 50 CRM records and 50 proposed changes; durable state stays in native source storage rather than an accumulating input history.",
+          "Retain native readiness coverage with lead-enrichment and lead-router as selection confusors and a composed journey preserving upstream transcript evidence.",
+          "Public version, GitHub PR head, registry digest, harness, clean install and dogfood evidence must agree. Do not publish until execution validation can run successfully.",
+          "No private customer data, secret files, paid model calls or payment destination changes."
+        ],
+        "deletions": [],
+        "direct_use": {
+          "trigger_requests": [
+            "Update this CRM from the call transcript and verify the changes."
+          ],
+          "non_trigger_requests": [
+            "Find new leads.",
+            "Assign inbound leads to salespeople."
+          ],
+          "default_outcome": "Read current CRM records, apply grounded allowed changes once and return before/after readback, or an explicit no-op/review/refusal.",
+          "routine_host_work": [
+            "Select the operator-owned source and provide a bounded transcript and CRM field schema."
+          ],
+          "runx_boundary": "Source-bound evidence, scoped mutation, optimistic concurrency, idempotency and independent readback are governed by native capabilities.",
+          "terminal_result": "Takeaways, field_updates and write_result with before/after and actual effect status.",
+          "blocker_behavior": "Return precise missing or ambiguous evidence and leave CRM state unchanged.",
+          "native_escape": "Return the bounded transcript context, source identity, takeaways and unresolved field findings so the operator can resolve uncertainty without losing evidence."
+        },
+        "chain_use": {
+          "accepted_inputs": [
+            "An existing bounded transcript and CRM schema from an upstream call-processing step.",
+            "An operator-selected source handle and stable operation key."
+          ],
+          "result": "A source-bound CRM cleanup outcome with takeaways, field_updates, before/after records and readback status.",
+          "reused_evidence": [
+            "Upstream transcript and field schema, without re-transcription."
+          ],
+          "reused_effects": [],
+          "must_not_repeat": [
+            "Do not re-transcribe the upstream call.",
+            "Do not append any event when the CRM already has the requested values."
+          ]
+        },
+        "proof_plan": [
+          {
+            "name": "inspect-complete-contract",
+            "kind": "contract",
+            "expected": "Native inspection reports complete typed public inputs/outputs, all four readiness facts true and no semantic diagnostics."
+          },
+          {
+            "name": "selection-crm-versus-leads",
+            "kind": "selection_trial",
+            "expected": "Select crm-cleanup for transcript-driven CRM updates, distinguishing lead-enrichment and lead-router."
+          },
+          {
+            "name": "default-read-write-readback",
+            "kind": "standalone_operator_journey",
+            "expected": "Default runner reads a seeded source, executes a changed field once, independently reads back the same source and returns exact before/after records."
+          },
+          {
+            "name": "upstream-transcript-reuse",
+            "kind": "composed_operator_journey",
+            "expected": "Consume upstream transcript/schema evidence without re-transcription; an already-matching CRM emits no append."
+          },
+          {
+            "name": "no-op-uncertainty-refusal-conflict",
+            "kind": "harness",
+            "expected": "Unchanged fields, unsupported fields, absent quote, low confidence, ambiguous record and concurrency conflict never claim verified mutation."
+          },
+          {
+            "name": "scope-and-readback",
+            "kind": "security",
+            "expected": "Withheld scope and mismatched readback stop accurately through production native owners."
+          },
+          {
+            "name": "published-dogfood",
+            "kind": "regression",
+            "expected": "After a green local harness, publish exact version and digest, clean-install it, run separate synthetic CRM transport read/write/readback dogfood, verify production receipts and hosted registry harness, and link raw files at the public PR head."
+          }
+        ]
+      }
+    }
+  }
+}
