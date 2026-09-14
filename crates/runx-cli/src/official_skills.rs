@@ -62,7 +62,7 @@ pub(crate) const OFFICIAL_SKILLS: &[OfficialSkillLockEntry] = &[
     },
     OfficialSkillLockEntry {
         skill_id: "kkebi50-svg/crm-cleanup",
-        version: "sha-75c70caefb31",
+        version: "sha-9315ed9471d4",
         digest: "5e980723a3b9e606f149b964d23bd980be9cb0f15fe745993e8568ce31f4f2ee",
     },
     OfficialSkillLockEntry {

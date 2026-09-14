@@ -1,7 +1,7 @@
 {
   "name": "crm-cleanup-noop",
   "kind": "graph",
-  "target": "journey.json",
+  "target": "../harness/journey.json",
   "operator_journeys": [
     {
       "mode": "composed",

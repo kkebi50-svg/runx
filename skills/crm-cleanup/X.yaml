@@ -1,6 +1,6 @@
 {
   "skill": "crm-cleanup",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "catalog": {
     "kind": "graph",
     "audience": "operator",
@@ -12,9 +12,6 @@
     "approval": "conditional"
   },
   "harness": {
-    "files": [
-      "fixtures/journey.json"
-    ],
     "cases": [
       {
         "name": "crm-cleanup-needs-transcript",

@@ -1,7 +1,7 @@
 {
   "name": "crm-cleanup-refusal",
   "kind": "graph",
-  "target": "journey.json",
+  "target": "../harness/journey.json",
   "operator_journeys": [],
   "env": {
     "RUNX_DATA_SOURCES": "{\"data_sources\":{\"local://crm/harness\":{\"adapter\":\"data.sqlite\",\"database_path\":\".runx/data/crm-refusal.sqlite\",\"resources\":{\"crm_records\":{\"kind\":\"event_stream\",\"partition_key\":\"aggregate_id\"}}}}}"
