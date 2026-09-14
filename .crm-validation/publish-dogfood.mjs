@@ -14,7 +14,7 @@ const kid=`crm-ci-${process.env.GITHUB_RUN_ID}`;
 const env={...process.env,RUNX_RECEIPT_SIGN_KID:kid,RUNX_RECEIPT_SIGN_ED25519_SEED_BASE64:seed,RUNX_RECEIPT_SIGN_ISSUER_TYPE:'ci'};
 delete env.RUNX_PUBLIC_API_TOKEN;
 const sourceRef='local://crm/dogfood';
-env.RUNX_DATA_SOURCES=JSON.stringify({data_sources:{[sourceRef]:{adapter:'data.sqlite',database_path:path.join(cwd,'crm.sqlite'),resources:{crm_records:{kind:'event_stream',partition_key:'aggregate_id'}}}}});
+env.RUNX_DATA_SOURCES=JSON.stringify({data_sources:{[sourceRef]:{adapter:'data.sqlite',database_path:'crm.sqlite',resources:{crm_records:{kind:'event_stream',partition_key:'aggregate_id'}}}}});
 const receipts=path.join(cwd,'receipts');
 const command=(label,args,extra={})=>{
   const r=spawnSync('runx',args,{cwd,env:{...env,...extra},encoding:'utf8',maxBuffer:16*1024*1024});
